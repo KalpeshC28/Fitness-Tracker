@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "scheme": "tribex",
+    "plugins": [
+      "expo-router"
+    ],
+    "name": "TribeX",
+    "slug": "TribeX",
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.your.tribex"
+    },
+    "android": {
+      "package": "com.your.tribex"
+    }
+  }
+}
