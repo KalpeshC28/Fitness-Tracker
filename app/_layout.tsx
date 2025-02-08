@@ -1,5 +1,5 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { ThemeProvider } from 'react-native-paper';
+import { PaperProvider } from 'react-native-paper';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { theme } from '../src/constants/theme';
 import { useEffect } from 'react';
@@ -28,10 +28,10 @@ function RootLayoutNav() {
 // Root layout with providers
 export default function RootLayout() {
   return (
-    <ThemeProvider theme={theme}>
-      <AuthProvider>
+    <AuthProvider>
+      <PaperProvider theme={theme}>
         <RootLayoutNav />
-      </AuthProvider>
-    </ThemeProvider>
+      </PaperProvider>
+    </AuthProvider>
   );
 } 
