@@ -1,22 +1,26 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback } from 'react-native';
-import { Text, Card, Avatar, Button, IconButton } from 'react-native-paper';
+import { Text, Card, Avatar, Button, IconButton, TextInput, Divider, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { Post } from '../../types/post';
-import { CreatePostFAB } from '../../components/common/CreatePostFAB';
 import { Sidebar } from '../../components/common/Sidebar';
 
 const SIDEBAR_WIDTH = 300;
 
 export default function HomeScreen() {
-  const { supabase } = useAuth();
+  const { supabase, user } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const translateX = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
+  const [postContent, setPostContent] = useState('');
+  const [isPosting, setIsPosting] = useState(false);
+  const [postType, setPostType] = useState('general');
+  const [postMenuVisible, setPostMenuVisible] = useState(false);
+  const [selectedPost, setSelectedPost] = useState(null);
 
   const fetchPosts = async () => {
     try {
@@ -56,16 +60,100 @@ export default function HomeScreen() {
     fetchPosts();
   }, []);
 
+  const handlePost = async () => {
+    if (!postContent.trim()) return;
+
+    setIsPosting(true);
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .insert({
+          content: postContent.trim(),
+          author_id: user?.id,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          media_urls: [], // Add empty array for media
+          likes_count: 0,
+          comments_count: 0,
+          community_id: null // Add null for community_id if not specified
+        });
+
+      if (error) throw error;
+
+      setPostContent('');
+      setPostType('general');
+      fetchPosts();
+    } catch (error) {
+      console.error('Error creating post:', error);
+      alert('Failed to create post');
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .delete()
+        .eq('id', postId);
+
+      if (error) throw error;
+      
+      fetchPosts();
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      alert('Failed to delete post');
+    }
+  };
+
   const renderPost = ({ item }: { item: Post }) => (
     <Card style={styles.card}>
       <Card.Title
         title={item.author?.full_name || item.author?.username}
-        subtitle={item.community?.name}
+        subtitle={
+          <View style={styles.subtitleContainer}>
+            <Text style={styles.postType}>{item.post_type || 'General'}</Text>
+            {item.community?.name && (
+              <Text style={styles.community}> • {item.community.name}</Text>
+            )}
+          </View>
+        }
         left={(props) => (
           <Avatar.Image
             {...props}
             source={{ uri: item.author?.avatar_url || undefined }}
           />
+        )}
+        right={(props) => (
+          <Menu
+            visible={selectedPost === item.id}
+            onDismiss={() => setSelectedPost(null)}
+            anchor={
+              <IconButton
+                {...props}
+                icon="dots-vertical"
+                onPress={() => setSelectedPost(item.id)}
+              />
+            }
+          >
+            {item.author_id === user?.id ? (
+              <Menu.Item 
+                onPress={() => {
+                  handleDeletePost(item.id);
+                  setSelectedPost(null);
+                }} 
+                title="Delete" 
+                leadingIcon="delete"
+              />
+            ) : (
+              <Menu.Item 
+                onPress={() => setSelectedPost(null)} 
+                title="Report" 
+                leadingIcon="flag"
+              />
+            )}
+          </Menu>
         )}
       />
       <Card.Content>
@@ -90,10 +178,70 @@ export default function HomeScreen() {
     <View style={styles.header}>
       <IconButton
         icon="menu"
-        size={24}
+        size={26}
         onPress={() => toggleDrawer(true)}
       />
-      <Text variant="headlineMedium">Home</Text>
+      <Text variant="headlineSmall">TribeX</Text>
+    </View>
+  );
+
+  const renderPostInput = () => (
+    <View style={styles.postInputContainer}>
+      <View style={styles.postInputHeader}>
+        <Menu
+          visible={postMenuVisible}
+          onDismiss={() => setPostMenuVisible(false)}
+          anchor={
+            <Button
+              mode="outlined"
+              onPress={() => setPostMenuVisible(true)}
+              style={styles.typeButton}
+            >
+              {postType.charAt(0).toUpperCase() + postType.slice(1)}
+            </Button>
+          }
+        >
+          <Menu.Item onPress={() => {
+            setPostType('general');
+            setPostMenuVisible(false);
+          }} title="General" />
+          <Menu.Item onPress={() => {
+            setPostType('question');
+            setPostMenuVisible(false);
+          }} title="Question" />
+          <Menu.Item onPress={() => {
+            setPostType('discussion');
+            setPostMenuVisible(false);
+          }} title="Discussion" />
+        </Menu>
+        <IconButton
+          icon="image"
+          size={24}
+          onPress={() => {/* Handle attachment */}}
+          style={styles.attachButton}
+        />
+      </View>
+      <TextInput
+        mode="flat"
+        multiline
+        placeholder="What's on your mind?"
+        value={postContent}
+        onChangeText={setPostContent}
+        style={styles.postInput}
+        underlineColor="transparent"
+        placeholderTextColor="#666"
+      />
+      <Divider style={styles.divider} />
+      <Button
+        mode="contained"
+        onPress={handlePost}
+        loading={isPosting}
+        disabled={!postContent.trim() || isPosting}
+        style={styles.postButton}
+        contentStyle={styles.postButtonContent}
+      >
+        Post
+      </Button>
     </View>
   );
 
@@ -123,6 +271,7 @@ export default function HomeScreen() {
     <>
       <SafeAreaView style={styles.container}>
         {renderHeader()}
+        {renderPostInput()}
         <FlatList
           data={posts}
           renderItem={renderPost}
@@ -143,7 +292,6 @@ export default function HomeScreen() {
             </View>
           }
         />
-        <CreatePostFAB />
       </SafeAreaView>
 
       {/* Always render overlay and sidebar, but control visibility with opacity */}
@@ -181,7 +329,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    padding: 10,
     backgroundColor: '#fff',
     elevation: 4,
     shadowColor: '#000',
@@ -191,9 +339,12 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 10,
+    marginTop: 18,
   },
   card: {
     marginBottom: 10,
+    zIndex: 0,
+    marginTop:35,
   },
   emptyContainer: {
     flex: 1,
@@ -234,5 +385,65 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
+  },
+  postInputContainer: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    marginTop: 10,
+    marginHorizontal: 13,
+    borderRadius: 22,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    zIndex: 1,
+  },
+  postInputHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  postInput: {
+    flex: 1,
+    backgroundColor: '#fff',
+    minHeight: 60,
+    fontSize: 16,
+    marginRight: 8,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 4,
+  },
+  attachButton: {
+    margin: 0,
+    marginTop: -4,
+  },
+  typeButton: {
+    borderRadius: 15,
+    marginVertical: 4,
+  },
+  postButton: {
+    borderRadius: 20,
+    marginTop: 4,
+  },
+  postButtonContent: {
+    height: 40,
+    width: '100%',
+  },
+  subtitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  postType: {
+    color: '#666',
+    fontSize: 12,
+  },
+  community: {
+    color: '#666',
+    fontSize: 12,
   },
 }); 
