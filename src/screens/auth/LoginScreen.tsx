@@ -5,6 +5,14 @@ import { useAuth } from '../../context/AuthContext';
 import { Input } from '../../components/common/Input';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { cardStyle } from '../../constants/theme';
+
+// Local colors
+const colors = {
+  background: '#FFFFFF',
+  text: '#000000',
+  primary: '#007AFF',
+};
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -18,7 +26,7 @@ export default function LoginScreen() {
       await signIn(email, password);
     } catch (error) {
       console.error(error);
-      // Handle error appropriately
+      alert('Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -29,34 +37,37 @@ export default function LoginScreen() {
       <View style={styles.content}>
         <Text variant="headlineMedium" style={styles.title}>Welcome Back</Text>
         
-        <Input
-          label="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
+        <View style={styles.card}>
+          <Input
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
 
-        <Input
-          label="Password"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-        />
+          <Input
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+          />
 
-        <Button
-          mode="contained"
-          onPress={handleLogin}
-          loading={loading}
-          style={styles.button}
-        >
-          Login
-        </Button>
+          <Button
+            mode="contained"
+            onPress={handleLogin}
+            loading={loading}
+            style={styles.button}
+            contentStyle={styles.buttonContent}
+          >
+            Login
+          </Button>
+        </View>
 
         <Button
           mode="text"
           onPress={() => router.push('/(auth)/register')}
-          style={styles.button}
+          style={styles.linkButton}
         >
           Don't have an account? Sign up
         </Button>
@@ -75,7 +86,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
@@ -85,8 +96,21 @@ const styles = StyleSheet.create({
   title: {
     textAlign: 'center',
     marginBottom: 24,
+    color: colors.text,
+  },
+  card: {
+    ...cardStyle,
+    padding: 16,
+    marginBottom: 16,
   },
   button: {
     marginVertical: 8,
+    borderRadius: 8,
+  },
+  buttonContent: {
+    height: 48,
+  },
+  linkButton: {
+    marginVertical: 4,
   },
 }); 

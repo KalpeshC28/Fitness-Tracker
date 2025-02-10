@@ -1,12 +1,23 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback } from 'react-native';
-import { Text, Card, Avatar, Button, IconButton, TextInput, Divider, Menu } from 'react-native-paper';
+import { Text, Card, Avatar, Button, IconButton, TextInput, Divider, Menu, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { Post } from '../../types/post';
 import { Sidebar } from '../../components/common/Sidebar';
+import { useRouter } from 'expo-router';
+import { neomorphShadow, glassMorphism, glowEffect } from '../../constants/theme';
 
 const SIDEBAR_WIDTH = 300;
+
+// Add these color constants at the top of the file
+const colors = {
+  background: '#FFFFFF',
+  surface: '#FFFFFF',
+  primary: '#007AFF',
+  border: '#E0E0E0',
+  text: '#666666',
+};
 
 export default function HomeScreen() {
   const { supabase, user } = useAuth();
@@ -21,6 +32,7 @@ export default function HomeScreen() {
   const [postType, setPostType] = useState('general');
   const [postMenuVisible, setPostMenuVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
+  const router = useRouter();
 
   const fetchPosts = async () => {
     try {
@@ -175,74 +187,17 @@ export default function HomeScreen() {
   );
 
   const renderHeader = () => (
-    <View style={styles.header}>
-      <IconButton
-        icon="menu"
-        size={26}
-        onPress={() => toggleDrawer(true)}
-      />
-      <Text variant="headlineSmall">TribeX</Text>
-    </View>
-  );
-
-  const renderPostInput = () => (
-    <View style={styles.postInputContainer}>
-      <View style={styles.postInputHeader}>
-        <Menu
-          visible={postMenuVisible}
-          onDismiss={() => setPostMenuVisible(false)}
-          anchor={
-            <Button
-              mode="outlined"
-              onPress={() => setPostMenuVisible(true)}
-              style={styles.typeButton}
-            >
-              {postType.charAt(0).toUpperCase() + postType.slice(1)}
-            </Button>
-          }
-        >
-          <Menu.Item onPress={() => {
-            setPostType('general');
-            setPostMenuVisible(false);
-          }} title="General" />
-          <Menu.Item onPress={() => {
-            setPostType('question');
-            setPostMenuVisible(false);
-          }} title="Question" />
-          <Menu.Item onPress={() => {
-            setPostType('discussion');
-            setPostMenuVisible(false);
-          }} title="Discussion" />
-        </Menu>
+    <>
+      <View style={styles.header}>
         <IconButton
-          icon="image"
-          size={24}
-          onPress={() => {/* Handle attachment */}}
-          style={styles.attachButton}
+          icon="menu"
+          size={26}
+          onPress={() => toggleDrawer(true)}
         />
+        <Text variant="headlineSmall">TribeX</Text>
       </View>
-      <TextInput
-        mode="flat"
-        multiline
-        placeholder="What's on your mind?"
-        value={postContent}
-        onChangeText={setPostContent}
-        style={styles.postInput}
-        underlineColor="transparent"
-        placeholderTextColor="#666"
-      />
       <Divider style={styles.divider} />
-      <Button
-        mode="contained"
-        onPress={handlePost}
-        loading={isPosting}
-        disabled={!postContent.trim() || isPosting}
-        style={styles.postButton}
-        contentStyle={styles.postButtonContent}
-      >
-        Post
-      </Button>
-    </View>
+    </>
   );
 
   const toggleDrawer = (open: boolean) => {
@@ -267,45 +222,168 @@ export default function HomeScreen() {
     });
   };
 
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: '#FFFFFF', // White for header area
+    },
+    contentContainer: {
+      flex: 1,
+      backgroundColor: '#fff', // Light gray for all content below header
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 4,
+      backgroundColor: '#FFFFFF',
+    },
+    divider: {
+      height: 1,
+      backgroundColor: '#E0E0E0',
+    },
+    content: {
+      padding: 5,
+      
+    },
+    card: {
+      marginBottom: 10,
+      marginHorizontal: 8,
+      backgroundColor: colors.surface,
+      ...glassMorphism,
+    },
+    emptyContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20,
+    },
+    overlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      zIndex: 1,
+    },
+    overlayTouch: {
+      flex: 1,
+      width: '100%',
+      height: '100%',
+    },
+    pointerEventsNone: {
+      pointerEvents: 'none',
+    },
+    sidebar: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: SIDEBAR_WIDTH,
+      backgroundColor: '#FFFFFF',
+      zIndex: 2,
+      ...neomorphShadow,
+    },
+    subtitleContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    postType: {
+      color: colors.text,
+      fontSize: 12,
+    },
+    community: {
+      color: colors.text,
+      fontSize: 12,
+    },
+    fab: {
+      position: 'absolute',
+      margin: 16,
+      right: 0,
+      bottom: 0,
+      backgroundColor: '#FFFFFF',
+      borderRadius: 100,
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 3.84,
+    },
+    discoverButton: {
+      margin: 12,
+      borderRadius: 8,
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      ...neomorphShadow,
+    },
+    discoverButtonLabel: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: colors.primary,
+    },
+  });
+
   return (
     <>
       <SafeAreaView style={styles.container}>
         {renderHeader()}
-        {renderPostInput()}
-        <FlatList
-          data={posts}
-          renderItem={renderPost}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.content}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                fetchPosts();
-              }}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text variant="bodyLarge">No posts yet</Text>
-            </View>
-          }
-        />
+        <View style={styles.contentContainer}>
+          <Button
+            mode="outlined"
+            icon="account-group"
+            onPress={() => router.push('/discover-communities')}
+            style={styles.discoverButton}
+            labelStyle={styles.discoverButtonLabel}
+          >
+            Discover Communities
+          </Button>
+          {/* <FlatList
+            data={posts}
+            renderItem={renderPost}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.content}
+            style={{ backgroundColor: '#f1f5f9' }} // Add background color to FlatList
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  fetchPosts();
+                }}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text variant="bodyLarge">No posts yet</Text>
+              </View>
+            }
+          /> */}
+          <FAB
+            icon="plus"
+            style={styles.fab}
+            color={colors.primary}
+            onPress={() => {
+              alert('Create post modal will open here');
+            }}
+          />
+        </View>
       </SafeAreaView>
 
-      {/* Always render overlay and sidebar, but control visibility with opacity */}
-      <Animated.View 
-        style={[
-          styles.overlay,
-          { opacity: overlayOpacity },
-          !isDrawerOpen && styles.pointerEventsNone,
-        ]}
-      >
-        <TouchableWithoutFeedback onPress={() => toggleDrawer(false)}>
-          <View style={styles.overlayTouch} />
-        </TouchableWithoutFeedback>
-      </Animated.View>
+      {isDrawerOpen && (
+        <Animated.View 
+          style={[
+            styles.overlay,
+            { opacity: overlayOpacity }
+          ]}
+        >
+          <TouchableWithoutFeedback onPress={() => toggleDrawer(false)}>
+            <View style={styles.overlayTouch} />
+          </TouchableWithoutFeedback>
+        </Animated.View>
+      )}
 
       <Animated.View
         style={[
@@ -319,131 +397,4 @@ export default function HomeScreen() {
       </Animated.View>
     </>
   );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f0f0f0',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#fff',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  content: {
-    padding: 10,
-    marginTop: 18,
-  },
-  card: {
-    marginBottom: 10,
-    zIndex: 0,
-    marginTop:35,
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'black',
-    zIndex: 1,
-  },
-  overlayTouch: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
-  pointerEventsNone: {
-    pointerEvents: 'none',
-  },
-  sidebar: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: SIDEBAR_WIDTH,
-    backgroundColor: 'white',
-    zIndex: 2,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 2,
-      height: 0,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-  },
-  postInputContainer: {
-    backgroundColor: '#fff',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    marginTop: 10,
-    marginHorizontal: 13,
-    borderRadius: 22,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    zIndex: 1,
-  },
-  postInputHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  postInput: {
-    flex: 1,
-    backgroundColor: '#fff',
-    minHeight: 60,
-    fontSize: 16,
-    marginRight: 8,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#e0e0e0',
-    marginVertical: 4,
-  },
-  attachButton: {
-    margin: 0,
-    marginTop: -4,
-  },
-  typeButton: {
-    borderRadius: 15,
-    marginVertical: 4,
-  },
-  postButton: {
-    borderRadius: 20,
-    marginTop: 4,
-  },
-  postButtonContent: {
-    height: 40,
-    width: '100%',
-  },
-  subtitleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  postType: {
-    color: '#666',
-    fontSize: 12,
-  },
-  community: {
-    color: '#666',
-    fontSize: 12,
-  },
-}); 
+} 

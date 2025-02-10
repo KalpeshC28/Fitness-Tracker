@@ -1,14 +1,17 @@
-import { ThemeProvider } from 'react-native-paper';
+import { PaperProvider } from 'react-native-paper';
 import { theme } from './src/constants/theme';
 import { AuthProvider } from './src/context/AuthContext';
-import RootNavigation from './src/navigation';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Slot } from 'expo-router';
 
 export default function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <AuthProvider>
-        <RootNavigation />
-      </AuthProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <PaperProvider theme={theme}>
+        <AuthProvider>
+          <Slot />
+        </AuthProvider>
+      </PaperProvider>
+    </SafeAreaProvider>
   );
 } 

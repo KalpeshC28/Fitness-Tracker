@@ -1,2 +1,5 @@
 import LoginScreen from '../../src/screens/auth/LoginScreen';
-export default LoginScreen; 
+
+export default function AuthLoginScreen() {
+  return <LoginScreen />;
+} 

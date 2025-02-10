@@ -16,6 +16,7 @@
     },
     "android": {
       "package": "com.your.tribex"
-    }
+    },
+    "newArchEnabled": true
   }
 }

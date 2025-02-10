@@ -108,7 +108,7 @@ export function Sidebar() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
   },
   header: {
     padding: 16,
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
   searchBar: {
     elevation: 0,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#E0E0E0',
   },
   createButton: {
     borderRadius: 8,
@@ -153,6 +153,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     textAlign: 'center',
-    color: '#666',
+    color: '#666666',
   },
 }); 
