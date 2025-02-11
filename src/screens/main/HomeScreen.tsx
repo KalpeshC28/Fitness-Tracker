@@ -7,6 +7,7 @@ import { Post } from '../../types/post';
 import { Sidebar } from '../../components/common/Sidebar';
 import { useRouter } from 'expo-router';
 import { neomorphShadow, glassMorphism, glowEffect } from '../../constants/theme';
+import { CreatePostModal } from '../../components/modals/CreatePostModal';
 
 const SIDEBAR_WIDTH = 300;
 
@@ -33,6 +34,7 @@ export default function HomeScreen() {
   const [postMenuVisible, setPostMenuVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
   const router = useRouter();
+  const [createPostVisible, setCreatePostVisible] = useState(false);
 
   const fetchPosts = async () => {
     try {
@@ -172,7 +174,10 @@ export default function HomeScreen() {
         <Text variant="bodyLarge">{item.content}</Text>
       </Card.Content>
       {item.media_urls && item.media_urls.length > 0 && (
-        <Card.Cover source={{ uri: item.media_urls[0] }} />
+        <Card.Cover 
+          source={{ uri: item.media_urls[0] }} 
+          style={styles.cardMedia}
+        />
       )}
       <Card.Actions>
         <Button icon="heart-outline">
@@ -324,6 +329,12 @@ export default function HomeScreen() {
       fontWeight: '500',
       color: colors.primary,
     },
+    cardMedia: {
+      marginTop: 10,
+      marginHorizontal: 10,
+      borderRadius: 8,
+      height: 200,
+    },
   });
 
   return (
@@ -340,7 +351,7 @@ export default function HomeScreen() {
           >
             Discover Communities
           </Button>
-          {/* <FlatList
+          <FlatList
             data={posts}
             renderItem={renderPost}
             keyExtractor={(item) => item.id}
@@ -360,14 +371,12 @@ export default function HomeScreen() {
                 <Text variant="bodyLarge">No posts yet</Text>
               </View>
             }
-          /> */}
+          />
           <FAB
             icon="plus"
             style={styles.fab}
-            color={colors.primary}
-            onPress={() => {
-              alert('Create post modal will open here');
-            }}
+            iconColor="#000000"
+            onPress={() => setCreatePostVisible(true)}
           />
         </View>
       </SafeAreaView>
@@ -395,6 +404,12 @@ export default function HomeScreen() {
       >
         <Sidebar />
       </Animated.View>
+
+      <CreatePostModal
+        visible={createPostVisible}
+        onDismiss={() => setCreatePostVisible(false)}
+        onPost={fetchPosts}
+      />
     </>
   );
 } 

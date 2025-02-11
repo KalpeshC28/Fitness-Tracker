@@ -16,23 +16,40 @@ export function Sidebar() {
     if (!user) return;
 
     try {
-      const { data, error } = await supabase
+      // First get the communities where the user is a member
+      const { data: memberData, error: memberError } = await supabase
         .from('community_members')
-        .select(`
-          community:communities(
+        .select('community_id')
+        .eq('user_id', user.id)
+        .eq('status', 'active');
+
+      if (memberError) throw memberError;
+
+      if (memberData && memberData.length > 0) {
+        // Get the community details for all joined communities
+        const communityIds = memberData.map(m => m.community_id);
+        const { data: communitiesData, error: communitiesError } = await supabase
+          .from('communities')
+          .select(`
             id,
             name,
+            description,
             cover_image,
-            description
-          )
-        `)
-        .eq('user_id', user.id);
+            member_count,
+            is_private,
+            creator_id,
+            created_at
+          `)
+          .in('id', communityIds);
 
-      if (error) throw error;
-
-      setCommunities(data?.map(item => item.community) || []);
+        if (communitiesError) throw communitiesError;
+        setCommunities(communitiesData || []);
+      } else {
+        setCommunities([]);
+      }
     } catch (error) {
       console.error('Error fetching communities:', error);
+      alert('Failed to load communities');
     } finally {
       setLoading(false);
     }
@@ -59,7 +76,6 @@ export function Sidebar() {
           onChangeText={setSearchQuery}
           value={searchQuery}
           style={styles.searchBar}
-          iconColor={theme.colors.primary}
         />
 
         <Button
@@ -73,27 +89,46 @@ export function Sidebar() {
       </View>
 
       <ScrollView style={styles.communitiesList}>
-        {filteredCommunities.map((community) => (
-          <List.Item
-            key={community.id}
-            title={community.name}
-            description={community.description}
-            left={(props) => (
-              <Avatar.Image
-                {...props}
-                size={40}
-                source={{ uri: community.cover_image || undefined }}
-              />
-            )}
-            onPress={() => router.push(`/community/${community.id}`)}
-            style={styles.communityItem}
-            titleStyle={styles.communityTitle}
-            descriptionStyle={styles.communityDescription}
-            rippleColor={theme.colors.primary}
-          />
-        ))}
-        
-        {!loading && filteredCommunities.length === 0 && (
+        {loading ? (
+          <View style={styles.emptyContainer}>
+            <Text>Loading communities...</Text>
+          </View>
+        ) : filteredCommunities.length > 0 ? (
+          filteredCommunities.map((community) => (
+            <List.Item
+              key={community.id}
+              title={community.name}
+              description={community.description || 'No description'}
+              left={(props) => (
+                community.cover_image ? (
+                  <Avatar.Image
+                    {...props}
+                    size={40}
+                    source={{ uri: community.cover_image }}
+                  />
+                ) : (
+                  <Avatar.Icon
+                    {...props}
+                    size={40}
+                    icon="account-group"
+                    color="#FFFFFF"
+                    style={{ backgroundColor: '#007AFF' }}
+                  />
+                )
+              )}
+              onPress={() => router.push(`/community/${community.id}`)}
+              style={styles.communityItem}
+              titleStyle={styles.communityTitle}
+              descriptionStyle={styles.communityDescription}
+              descriptionNumberOfLines={1}
+              right={(props) => (
+                <Text style={styles.memberCount}>
+                  {community.member_count} {community.member_count === 1 ? 'member' : 'members'}
+                </Text>
+              )}
+            />
+          ))
+        ) : (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
               {searchQuery ? 'No communities found' : 'No communities joined yet'}
@@ -118,7 +153,6 @@ const styles = StyleSheet.create({
   title: {
     fontWeight: 'bold',
   },
-
   searchContainer: {
     padding: 16,
     gap: 12,
@@ -136,6 +170,7 @@ const styles = StyleSheet.create({
   },
   communityItem: {
     paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   communityTitle: {
     fontSize: 16,
@@ -144,6 +179,11 @@ const styles = StyleSheet.create({
   communityDescription: {
     fontSize: 14,
     opacity: 0.7,
+  },
+  memberCount: {
+    fontSize: 12,
+    opacity: 0.5,
+    alignSelf: 'center',
   },
   emptyContainer: {
     flex: 1,
