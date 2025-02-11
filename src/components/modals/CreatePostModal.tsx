@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Modal, Image, TouchableOpacity, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, Modal, Image, TouchableOpacity, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { TextInput, Button, IconButton, Text, Menu } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
 import * as VideoPicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { supabase } from '../../services/supabase';
+import { decode } from 'base64-arraybuffer';
+import * as FileSystem from 'expo-file-system';
 
 interface CreatePostModalProps {
   visible: boolean;
   onDismiss: () => void;
   onPost: () => void;
+  communityId?: string;
 }
 
-export function CreatePostModal({ visible, onDismiss, onPost }: CreatePostModalProps) {
+export function CreatePostModal({ visible, onDismiss, onPost, communityId }: CreatePostModalProps) {
   const [content, setContent] = useState('');
   const [postType, setPostType] = useState('General');
   const [isLoading, setIsLoading] = useState(false);
@@ -21,31 +25,79 @@ export function CreatePostModal({ visible, onDismiss, onPost }: CreatePostModalP
   const { supabase, user } = useAuth();
   const [mediaType, setMediaType] = useState<'none' | 'image' | 'video'>('none');
   const [mediaUri, setMediaUri] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const uploadMedia = async (uri: string): Promise<string | null> => {
+    try {
+      setIsUploading(true);
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const filePath = `${user?.id}/${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const contentType = uri.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg';
+
+      const { error: uploadError, data } = await supabase.storage
+        .from('community_posts')
+        .upload(filePath, decode(base64), {
+          contentType,
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('community_posts')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading media:', error);
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handlePost = async () => {
-    if (!content.trim()) return;
+    if (!content.trim() && !mediaUri) return;
 
     setIsLoading(true);
     try {
+      let mediaUrl = null;
+      if (mediaUri) {
+        mediaUrl = await uploadMedia(mediaUri);
+        if (!mediaUrl) {
+          alert('Failed to upload media');
+          return;
+        }
+      }
+
       const { error } = await supabase
         .from('posts')
         .insert({
           content: content.trim(),
           author_id: user?.id,
-          media_urls: [],
+          community_id: communityId,
+          post_type: communityId ? 'community' : 'normal',
+          media_urls: mediaUrl ? [mediaUrl] : [],
+          media_type: mediaUri ? mediaType : 'none',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           likes_count: 0,
           comments_count: 0,
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Post creation error:', error);
+        throw error;
+      }
 
       // Clear form and close modal
       setContent('');
       setMediaUri(null);
       setMediaType('none');
-      setPostType('General');
       onPost();
       onDismiss();
     } catch (error) {
@@ -176,7 +228,11 @@ export function CreatePostModal({ visible, onDismiss, onPost }: CreatePostModalP
                   }}
                 />
                 {mediaType === 'image' ? (
-                  <Image source={{ uri: mediaUri }} style={styles.previewMedia} />
+                  <Image 
+                    source={{ uri: mediaUri }} 
+                    style={styles.previewMedia} 
+                    resizeMode="cover"
+                  />
                 ) : (
                   <Video
                     source={{ uri: mediaUri }}
@@ -202,6 +258,13 @@ export function CreatePostModal({ visible, onDismiss, onPost }: CreatePostModalP
                 />
               </View>
             </View>
+
+            {isUploading && (
+              <View style={styles.uploadProgress}>
+                <ActivityIndicator />
+                <Text>Uploading media...</Text>
+              </View>
+            )}
           </View>
         </KeyboardAvoidingView>
       </TouchableWithoutFeedback>
@@ -279,5 +342,11 @@ const styles = StyleSheet.create({
   mediaButtons: {
     flexDirection: 'row',
     gap: 8,
+  },
+  uploadProgress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
   },
 }); 

@@ -39,31 +39,24 @@ export default function HomeScreen() {
   const fetchPosts = async () => {
     try {
       const { data, error } = await supabase
-        .from('extended_posts')
-        .select('*')
+        .from('posts')
+        .select(`
+          *,
+          author:profiles(
+            id,
+            full_name,
+            username,
+            avatar_url
+          )
+        `)
+        .eq('post_type', 'normal') // Only fetch normal posts
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      // Transform the data to match our Post type
-      const transformedPosts = (data || []).map(post => ({
-        ...post,
-        author: {
-          id: post.author_id,
-          full_name: post.author_full_name,
-          username: post.author_username,
-          avatar_url: post.author_avatar_url
-        },
-        community: post.community_id ? {
-          id: post.community_id,
-          name: post.community_name
-        } : undefined
-      }));
-
-      setPosts(transformedPosts);
+      setPosts(data || []);
     } catch (error) {
       console.error('Error fetching posts:', error);
-      setPosts([]);
+      alert('Failed to load posts');
     } finally {
       setLoading(false);
       setRefreshing(false);

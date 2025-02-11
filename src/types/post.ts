@@ -2,6 +2,7 @@ export interface Post {
   id: string;
   content: string;
   media_urls: string[];
+  media_type: 'none' | 'image' | 'video';
   author_id: string;
   community_id: string | null;
   created_at: string;

@@ -16,37 +16,25 @@ export function Sidebar() {
     if (!user) return;
 
     try {
-      // First get the communities where the user is a member
-      const { data: memberData, error: memberError } = await supabase
-        .from('community_members')
-        .select('community_id')
-        .eq('user_id', user.id)
-        .eq('status', 'active');
+      // Get communities where user is a member with fresh member count
+      const { data, error } = await supabase
+        .from('communities')
+        .select(`
+          id,
+          name,
+          description,
+          cover_image,
+          member_count,
+          is_private,
+          creator_id,
+          created_at,
+          members:community_members(count)
+        `)
+        .eq('community_members.user_id', user.id)
+        .eq('community_members.status', 'active');
 
-      if (memberError) throw memberError;
-
-      if (memberData && memberData.length > 0) {
-        // Get the community details for all joined communities
-        const communityIds = memberData.map(m => m.community_id);
-        const { data: communitiesData, error: communitiesError } = await supabase
-          .from('communities')
-          .select(`
-            id,
-            name,
-            description,
-            cover_image,
-            member_count,
-            is_private,
-            creator_id,
-            created_at
-          `)
-          .in('id', communityIds);
-
-        if (communitiesError) throw communitiesError;
-        setCommunities(communitiesData || []);
-      } else {
-        setCommunities([]);
-      }
+      if (error) throw error;
+      setCommunities(data || []);
     } catch (error) {
       console.error('Error fetching communities:', error);
       alert('Failed to load communities');
@@ -58,6 +46,28 @@ export function Sidebar() {
   useEffect(() => {
     fetchJoinedCommunities();
   }, [user]);
+
+  // Add this effect to refresh communities when member count changes
+  useEffect(() => {
+    const channel = supabase
+      .channel('community_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'community_members'
+        },
+        () => {
+          fetchJoinedCommunities();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const filteredCommunities = communities.filter(community =>
     community.name.toLowerCase().includes(searchQuery.toLowerCase())

@@ -2,7 +2,9 @@
   "expo": {
     "scheme": "tribex",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-file-system",
+      "expo-av"
     ],
     "name": "TribeX",
     "slug": "TribeX",
