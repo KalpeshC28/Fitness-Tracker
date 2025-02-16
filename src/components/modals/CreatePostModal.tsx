@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Modal, Image, TouchableOpacity, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
-import { TextInput, Button, IconButton, Text, Menu } from 'react-native-paper';
+import { View, StyleSheet, Modal, Image, ScrollView, TouchableOpacity } from 'react-native';
+import { Text, TextInput, Button, IconButton, ActivityIndicator } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
-import * as VideoPicker from 'expo-image-picker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { supabase } from '../../services/supabase';
 import { decode } from 'base64-arraybuffer';
 import * as FileSystem from 'expo-file-system';
+import { Video, ResizeMode } from 'expo-av';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface CreatePostModalProps {
   visible: boolean;
@@ -18,15 +18,11 @@ interface CreatePostModalProps {
 
 export function CreatePostModal({ visible, onDismiss, onPost, communityId }: CreatePostModalProps) {
   const [content, setContent] = useState('');
-  const [postType, setPostType] = useState('General');
   const [isLoading, setIsLoading] = useState(false);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [image, setImage] = useState<string | null>(null);
-  const { supabase, user } = useAuth();
   const [mediaType, setMediaType] = useState<'none' | 'image' | 'video'>('none');
   const [mediaUri, setMediaUri] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const { supabase, user } = useAuth();
 
   const uploadMedia = async (uri: string): Promise<string | null> => {
     try {
@@ -34,24 +30,21 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-
+      
       const filePath = `${user?.id}/${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      const contentType = uri.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg';
-
-      const { error: uploadError, data } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('community_posts')
         .upload(filePath, decode(base64), {
-          contentType,
-          upsert: true,
+          contentType: mediaType === 'image' ? 'image/jpeg' : 'video/mp4',
         });
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data } = supabase.storage
         .from('community_posts')
         .getPublicUrl(filePath);
 
-      return publicUrl;
+      return data.publicUrl;
     } catch (error) {
       console.error('Error uploading media:', error);
       return null;
@@ -80,21 +73,16 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
           content: content.trim(),
           author_id: user?.id,
           community_id: communityId,
-          post_type: communityId ? 'community' : 'normal',
           media_urls: mediaUrl ? [mediaUrl] : [],
-          media_type: mediaUri ? mediaType : 'none',
+          media_type: mediaType,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           likes_count: 0,
           comments_count: 0,
         });
 
-      if (error) {
-        console.error('Post creation error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      // Clear form and close modal
       setContent('');
       setMediaUri(null);
       setMediaType('none');
@@ -108,245 +96,195 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
     }
   };
 
-  const pickMedia = async (type: 'image' | 'video') => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Sorry, we need camera roll permissions to make this work!');
-        return;
-      }
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+    });
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: type === 'image' ? 
-          ImagePicker.MediaTypeOptions.Images : 
-          ImagePicker.MediaTypeOptions.Videos,
-        allowsEditing: true,
-        aspect: [16, 9],
-        quality: 1,
-      });
+    if (!result.canceled) {
+      setMediaUri(result.assets[0].uri);
+      setMediaType('image');
+    }
+  };
 
-      if (!result.canceled) {
-        setMediaUri(result.assets[0].uri);
-        setMediaType(type);
-      }
-    } catch (error) {
-      console.error('Error picking media:', error);
-      alert('Failed to pick media');
+  const pickVideo = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      quality: 0.8,
+      allowsEditing: true,
+    });
+
+    if (!result.canceled) {
+      setMediaUri(result.assets[0].uri);
+      setMediaType('video');
     }
   };
 
   return (
-    <Modal
-      visible={visible}
-      onRequestClose={onDismiss}
-      animationType="slide"
-      transparent={true}
-    >
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={styles.modalContainer}
-        >
-          <View style={styles.modalContent}>
-            <View style={styles.header}>
-              <IconButton icon="close" onPress={onDismiss} />
-              <Text variant="titleLarge">Create Post</Text>
-              <Button
-                mode="contained"
-                onPress={handlePost}
-                loading={isLoading}
-                disabled={!content.trim() || isLoading}
-                style={styles.postButton}
-              >
-                Post
-              </Button>
+    <Modal visible={visible} animationType="slide">
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <IconButton 
+            icon="close" 
+            size={24} 
+            onPress={onDismiss}
+          />
+          <Text variant="titleLarge" style={styles.headerTitle}>Create Post</Text>
+          <Button 
+            mode="contained"
+            onPress={handlePost}
+            loading={isLoading}
+            disabled={isLoading || (!content.trim() && !mediaUri)}
+            style={styles.postButton}
+          >
+            Post
+          </Button>
+        </View>
+
+        <ScrollView style={styles.content}>
+          <TextInput
+            placeholder="What's on your mind?"
+            value={content}
+            onChangeText={setContent}
+            multiline
+            numberOfLines={5}
+            style={styles.input}
+            disabled={isLoading}
+          />
+
+          {mediaUri && (
+            <View style={styles.mediaPreview}>
+              {mediaType === 'image' ? (
+                <Image source={{ uri: mediaUri }} style={styles.previewMedia} />
+              ) : (
+                <Video
+                  source={{ uri: mediaUri }}
+                  style={styles.previewMedia}
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}
+                />
+              )}
+              <IconButton
+                icon="close-circle"
+                size={24}
+                onPress={() => {
+                  setMediaUri(null);
+                  setMediaType('none');
+                }}
+                style={styles.removeMedia}
+              />
             </View>
+          )}
 
-            <View style={styles.typeSelector}>
-              <Menu
-                visible={menuVisible}
-                onDismiss={() => setMenuVisible(false)}
-                anchor={
-                  <Button
-                    mode="outlined"
-                    onPress={() => setMenuVisible(true)}
-                    icon="chevron-down"
-                    contentStyle={{ flexDirection: 'row-reverse' }}
-                    style={{ width: '100%' }}
-                  >
-                    {postType}
-                  </Button>
-                }
-                style={{ width: '50%' }}
-              >
-                <Menu.Item 
-                  onPress={() => {
-                    setPostType('General');
-                    setMenuVisible(false);
-                  }} 
-                  title="General"
-                  leadingIcon="text"
-                />
-                <Menu.Item 
-                  onPress={() => {
-                    setPostType('Question');
-                    setMenuVisible(false);
-                  }} 
-                  title="Question"
-                  leadingIcon="help-circle"
-                />
-                <Menu.Item 
-                  onPress={() => {
-                    setPostType('Discussion');
-                    setMenuVisible(false);
-                  }} 
-                  title="Discussion"
-                  leadingIcon="forum"
-                />
-              </Menu>
+          {isUploading && (
+            <View style={styles.uploadingContainer}>
+              <ActivityIndicator size="large" />
+              <Text>Uploading media...</Text>
             </View>
+          )}
+        </ScrollView>
 
-            <TextInput
-              mode="flat"
-              placeholder="What's on your mind?"
-              value={content}
-              onChangeText={setContent}
-              multiline
-              style={styles.input}
-              underlineColor="transparent"
-            />
+        <View style={styles.footer}>
+          <Text variant="bodyMedium" style={styles.addToPost}>Add to your post</Text>
+          <View style={styles.mediaButtons}>
+            <TouchableOpacity 
+              style={styles.mediaButton} 
+              onPress={pickImage}
+              disabled={isLoading}
+            >
+              <MaterialCommunityIcons name="image" size={24} color="#4CAF50" />
+              <Text style={styles.mediaButtonText}>Photo</Text>
+            </TouchableOpacity>
 
-            {mediaUri && (
-              <View style={styles.mediaPreview}>
-                <IconButton
-                  icon="close"
-                  size={20}
-                  style={styles.removeMedia}
-                  onPress={() => {
-                    setMediaUri(null);
-                    setMediaType('none');
-                  }}
-                />
-                {mediaType === 'image' ? (
-                  <Image 
-                    source={{ uri: mediaUri }} 
-                    style={styles.previewMedia} 
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <Video
-                    source={{ uri: mediaUri }}
-                    style={styles.previewMedia}
-                    useNativeControls
-                    resizeMode="contain"
-                  />
-                )}
-              </View>
-            )}
-
-            <View style={styles.actions}>
-              <View style={styles.mediaButtons}>
-                <IconButton
-                  icon="image"
-                  size={24}
-                  onPress={() => pickMedia('image')}
-                />
-                <IconButton
-                  icon="video"
-                  size={24}
-                  onPress={() => pickMedia('video')}
-                />
-              </View>
-            </View>
-
-            {isUploading && (
-              <View style={styles.uploadProgress}>
-                <ActivityIndicator />
-                <Text>Uploading media...</Text>
-              </View>
-            )}
+            <TouchableOpacity 
+              style={styles.mediaButton} 
+              onPress={pickVideo}
+              disabled={isLoading}
+            >
+              <MaterialCommunityIcons name="video" size={24} color="#F44336" />
+              <Text style={styles.mediaButtonText}>Video</Text>
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
+        </View>
+      </SafeAreaView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalContainer: {
+  container: {
     flex: 1,
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    padding: 20,
-  },
-  modalContent: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 20,
-    maxHeight: '80%',
-    width: '100%',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  headerTitle: {
+    flex: 1,
+    marginLeft: 16,
   },
   postButton: {
     borderRadius: 20,
   },
-  typeSelector: {
-    marginBottom: 16,
-    zIndex: 2,
-    position: 'relative',
+  content: {
+    flex: 1,
+    padding: 16,
   },
   input: {
     backgroundColor: 'transparent',
+    fontSize: 16,
     minHeight: 120,
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
-  actions: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    paddingTop: 16,
   },
   mediaPreview: {
-    margin: 16,
-    position: 'relative',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
+    marginTop: 16,
+    borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: '#f5f5f5',
   },
   previewMedia: {
     width: '100%',
-    height: 200,
-    borderRadius: 8,
+    height: 300,
+    backgroundColor: '#f5f5f5',
   },
   removeMedia: {
     position: 'absolute',
     top: 8,
     right: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    zIndex: 1,
+  },
+  uploadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  addToPost: {
+    marginBottom: 12,
+    color: '#666',
   },
   mediaButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 20,
   },
-  uploadProgress: {
+  mediaButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
+    gap: 8,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f5f5f5',
+  },
+  mediaButtonText: {
+    color: '#666',
   },
 }); 

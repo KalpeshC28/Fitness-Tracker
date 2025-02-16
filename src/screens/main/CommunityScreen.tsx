@@ -83,10 +83,13 @@ export default function CommunityScreen() {
             full_name,
             username,
             avatar_url
+          ),
+          community:communities(
+            id,
+            name
           )
         `)
         .eq('community_id', id)
-        .eq('post_type', 'community')
         .order('created_at', { ascending: false });
 
       if (error) throw error;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback, TouchableOpacity } from 'react-native';
 import { Text, Card, Avatar, Button, IconButton, TextInput, Divider, Menu, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -8,6 +8,7 @@ import { Sidebar } from '../../components/common/Sidebar';
 import { useRouter } from 'expo-router';
 import { neomorphShadow, glassMorphism, glowEffect } from '../../constants/theme';
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
+import { ProfileCompletionModal } from '../../components/modals/ProfileCompletionModal';
 
 const SIDEBAR_WIDTH = 300;
 
@@ -28,16 +29,25 @@ export default function HomeScreen() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const translateX = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const [postContent, setPostContent] = useState('');
-  const [isPosting, setIsPosting] = useState(false);
-  const [postType, setPostType] = useState('general');
-  const [postMenuVisible, setPostMenuVisible] = useState(false);
   const [selectedPost, setSelectedPost] = useState(null);
   const router = useRouter();
-  const [createPostVisible, setCreatePostVisible] = useState(false);
+  const [showProfileCompletion, setShowProfileCompletion] = useState(false);
 
   const fetchPosts = async () => {
     try {
+      // First get the communities the user is a member of
+      const { data: memberOf, error: memberError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .eq('user_id', user?.id)
+        .eq('status', 'active');
+
+      if (memberError) throw memberError;
+
+      // Get the community IDs the user is a member of
+      const communityIds = memberOf?.map(m => m.community_id) || [];
+
+      // Fetch posts from those communities
       const { data, error } = await supabase
         .from('posts')
         .select(`
@@ -47,9 +57,13 @@ export default function HomeScreen() {
             full_name,
             username,
             avatar_url
+          ),
+          community:communities(
+            id,
+            name
           )
         `)
-        .eq('post_type', 'normal') // Only fetch normal posts
+        .in('community_id', communityIds)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -65,38 +79,50 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchPosts();
+
+    // Subscribe to post changes in joined communities
+    const channel = supabase
+      .channel('posts_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'posts'
+        },
+        () => {
+          fetchPosts(); // Refresh posts when there are changes
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  const handlePost = async () => {
-    if (!postContent.trim()) return;
+  useEffect(() => {
+    const checkProfileCompletion = async () => {
+      if (!user) return;
 
-    setIsPosting(true);
-    try {
-      const { error } = await supabase
-        .from('posts')
-        .insert({
-          content: postContent.trim(),
-          author_id: user?.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          media_urls: [], // Add empty array for media
-          likes_count: 0,
-          comments_count: 0,
-          community_id: null // Add null for community_id if not specified
-        });
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_profile_complete')
+        .eq('id', user.id)
+        .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error checking profile completion:', error);
+        return;
+      }
 
-      setPostContent('');
-      setPostType('general');
-      fetchPosts();
-    } catch (error) {
-      console.error('Error creating post:', error);
-      alert('Failed to create post');
-    } finally {
-      setIsPosting(false);
-    }
-  };
+      if (!data?.is_profile_complete) {
+        setShowProfileCompletion(true);
+      }
+    };
+
+    checkProfileCompletion();
+  }, [user]);
 
   const handleDeletePost = async (postId: string) => {
     try {
@@ -117,20 +143,34 @@ export default function HomeScreen() {
   const renderPost = ({ item }: { item: Post }) => (
     <Card style={styles.card}>
       <Card.Title
-        title={item.author?.full_name || item.author?.username}
+        title={
+          <TouchableOpacity 
+            onPress={() => router.push(`/profile/${item.author_id}`)}
+          >
+            <Text style={styles.authorName}>
+              {item.author?.full_name || item.author?.username}
+            </Text>
+          </TouchableOpacity>
+        }
         subtitle={
-          <View style={styles.subtitleContainer}>
-            <Text style={styles.postType}>{item.post_type || 'General'}</Text>
-            {item.community?.name && (
-              <Text style={styles.community}> • {item.community.name}</Text>
-            )}
-          </View>
+          <TouchableOpacity 
+            onPress={() => item.community_id && router.push(`/community/${item.community_id}`)}
+          >
+            <Text style={styles.communityName}>
+              {item.community?.name ? `Posted in ${item.community.name}` : 'General'}
+            </Text>
+          </TouchableOpacity>
         }
         left={(props) => (
-          <Avatar.Image
-            {...props}
-            source={{ uri: item.author?.avatar_url || undefined }}
-          />
+          <TouchableOpacity 
+            onPress={() => router.push(`/profile/${item.author_id}`)}
+          >
+            <Avatar.Image
+              {...props}
+              size={40}
+              source={{ uri: item.author?.avatar_url || undefined }}
+            />
+          </TouchableOpacity>
         )}
         right={(props) => (
           <Menu
@@ -173,12 +213,8 @@ export default function HomeScreen() {
         />
       )}
       <Card.Actions>
-        <Button icon="heart-outline">
-          {item.likes_count || 0}
-        </Button>
-        <Button icon="comment-outline">
-          {item.comments_count || 0}
-        </Button>
+        <Button icon="heart-outline">{item.likes_count || 0}</Button>
+        <Button icon="comment-outline">{item.comments_count || 0}</Button>
         <Button icon="share-outline">Share</Button>
       </Card.Actions>
     </Card>
@@ -328,6 +364,15 @@ export default function HomeScreen() {
       borderRadius: 8,
       height: 200,
     },
+    authorName: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#000',
+    },
+    communityName: {
+      fontSize: 14,
+      color: '#007AFF',
+    },
   });
 
   return (
@@ -349,7 +394,7 @@ export default function HomeScreen() {
             renderItem={renderPost}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.content}
-            style={{ backgroundColor: '#f1f5f9' }} // Add background color to FlatList
+            style={{ backgroundColor: '#f1f5f9' }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -364,12 +409,6 @@ export default function HomeScreen() {
                 <Text variant="bodyLarge">No posts yet</Text>
               </View>
             }
-          />
-          <FAB
-            icon="plus"
-            style={styles.fab}
-            iconColor="#000000"
-            onPress={() => setCreatePostVisible(true)}
           />
         </View>
       </SafeAreaView>
@@ -398,10 +437,9 @@ export default function HomeScreen() {
         <Sidebar />
       </Animated.View>
 
-      <CreatePostModal
-        visible={createPostVisible}
-        onDismiss={() => setCreatePostVisible(false)}
-        onPost={fetchPosts}
+      <ProfileCompletionModal
+        visible={showProfileCompletion}
+        onComplete={() => setShowProfileCompletion(false)}
       />
     </>
   );
