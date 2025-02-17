@@ -440,6 +440,7 @@ export default function HomeScreen() {
       <ProfileCompletionModal
         visible={showProfileCompletion}
         onComplete={() => setShowProfileCompletion(false)}
+        onClose={() => setShowProfileCompletion(false)}
       />
     </>
   );

@@ -16,25 +16,55 @@ export function Sidebar() {
     if (!user) return;
 
     try {
-      // Get communities where user is a member with fresh member count
-      const { data, error } = await supabase
+      // Get communities where user is a member
+      const { data: userCommunities, error: membershipError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .eq('user_id', user.id)
+        .eq('status', 'active');
+
+      if (membershipError) throw membershipError;
+
+      const communityIds = userCommunities.map(uc => uc.community_id);
+
+      // Get community details
+      const { data: communitiesData, error: communitiesError } = await supabase
         .from('communities')
         .select(`
           id,
           name,
           description,
           cover_image,
-          member_count,
           is_private,
           creator_id,
-          created_at,
-          members:community_members(count)
+          created_at
         `)
-        .eq('community_members.user_id', user.id)
-        .eq('community_members.status', 'active');
+        .in('id', communityIds);
 
-      if (error) throw error;
-      setCommunities(data || []);
+      if (communitiesError) throw communitiesError;
+
+      // Get all active members for these communities
+      const { data: allMembers, error: membersError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .in('community_id', communityIds)
+        .eq('status', 'active');
+
+      if (membersError) throw membersError;
+
+      // Count members for each community
+      const memberCounts = communityIds.reduce((acc, communityId) => {
+        acc[communityId] = allMembers.filter(m => m.community_id === communityId).length;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Combine the data
+      const communitiesWithCounts = communitiesData.map(community => ({
+        ...community,
+        member_count: memberCounts[community.id] || 0
+      }));
+
+      setCommunities(communitiesWithCounts);
     } catch (error) {
       console.error('Error fetching communities:', error);
       alert('Failed to load communities');
@@ -47,10 +77,10 @@ export function Sidebar() {
     fetchJoinedCommunities();
   }, [user]);
 
-  // Add this effect to refresh communities when member count changes
+  // Add this effect to listen for member count changes
   useEffect(() => {
     const channel = supabase
-      .channel('community_changes')
+      .channel('member_count_changes')
       .on(
         'postgres_changes',
         {
@@ -59,7 +89,7 @@ export function Sidebar() {
           table: 'community_members'
         },
         () => {
-          fetchJoinedCommunities();
+          fetchJoinedCommunities(); // Refresh when members change
         }
       )
       .subscribe();

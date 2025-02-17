@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Image } from 'react-native';
-import { Text, Button, Avatar, Card, IconButton, Divider } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, RefreshControl, Image, TouchableOpacity } from 'react-native';
+import { Text, Button, Avatar, Card, IconButton, Divider, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -8,6 +8,18 @@ import { Community } from '../../types/community';
 import { Post } from '../../types/post';
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
 import { Video } from 'expo-av';
+import { EditCommunityModal } from '../../components/modals/EditCommunityModal';
+
+interface CommunityMember {
+  user_id: string;
+  role: 'admin' | 'member';
+  joined_at: string;
+  user: {
+    full_name: string | null;
+    username: string | null;
+    avatar_url: string | null;
+  };
+}
 
 export default function CommunityScreen() {
   const { id } = useLocalSearchParams();
@@ -20,48 +32,68 @@ export default function CommunityScreen() {
   const [memberCount, setMemberCount] = useState(0);
   const [createPostVisible, setCreatePostVisible] = useState(false);
   const [userRole, setUserRole] = useState<'member' | 'admin' | null>(null);
+  const [members, setMembers] = useState<CommunityMember[]>([]);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
   const fetchCommunity = async () => {
     try {
-      // Fetch community with fresh member count
+      // Fetch community details
       const { data: communityData, error: communityError } = await supabase
         .from('communities')
         .select(`
           *,
-          members:community_members(count)
+          creator:profiles(
+            id, full_name, username, avatar_url
+          )
         `)
         .eq('id', id)
         .single();
 
       if (communityError) throw communityError;
 
-      // Fetch creator details
-      const { data: creatorData, error: creatorError } = await supabase
+      // Update the members fetch query in fetchCommunity function
+      const { data: membersData, error: membersError } = await supabase
+        .from('community_members')
+        .select('user_id, role, joined_at')
+        .eq('community_id', id)
+        .eq('status', 'active');
+
+      if (membersError) throw membersError;
+
+      // Fetch profiles for members in a separate query
+      const memberIds = membersData?.map(m => m.user_id) || [];
+      const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
         .select('id, full_name, username, avatar_url')
-        .eq('id', communityData.creator_id)
-        .single();
+        .in('id', memberIds);
 
-      if (creatorError) throw creatorError;
+      if (profilesError) throw profilesError;
 
-      setCommunity({
-        ...communityData,
-        creator: creatorData
+      // Combine the data
+      const transformedMembers = (membersData || []).map(member => {
+        const profile = profilesData?.find(p => p.id === member.user_id);
+        return {
+          user_id: member.user_id,
+          role: member.role,
+          joined_at: member.joined_at,
+          user: {
+            full_name: profile?.full_name,
+            username: profile?.username,
+            avatar_url: profile?.avatar_url
+          }
+        };
       });
-      setMemberCount(communityData.member_count);
+
+      setCommunity(communityData);
+      setMembers(transformedMembers);
+      setMemberCount(transformedMembers.length);
 
       // Check user membership and role
-      const { data: memberData, error: memberError } = await supabase
-        .from('community_members')
-        .select('role')
-        .eq('community_id', id)
-        .eq('user_id', user?.id)
-        .eq('status', 'active')
-        .single();
-
-      if (!memberError) {
+      const userMember = transformedMembers.find(m => m.user_id === user?.id);
+      if (userMember) {
         setIsMember(true);
-        setUserRole(memberData.role as 'member' | 'admin');
+        setUserRole(userMember.role as 'member' | 'admin');
       } else {
         setIsMember(false);
         setUserRole(null);
@@ -325,22 +357,60 @@ export default function CommunityScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <IconButton icon="arrow-left" onPress={() => router.back()} />
-        <Text variant="titleLarge" style={styles.title}>{community.name}</Text>
-        <View style={styles.headerActions}>
-          {userRole === 'admin' && (
-            <IconButton
-              icon="delete"
-              onPress={handleDeleteCommunity}
-              iconColor="#FF3B30"
-            />
-          )}
-          {isMember ? (
-            <Button mode="outlined" onPress={handleLeave}>
-              {userRole === 'admin' ? 'Leave & Transfer' : 'Leave'}
-            </Button>
+        <IconButton 
+          icon="arrow-left" 
+          size={24} 
+          onPress={() => router.back()} 
+        />
+        
+        <Text 
+          variant="titleLarge" 
+          style={styles.title}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {community.name}
+        </Text>
+
+        <View style={styles.headerRight}>
+          {userRole === 'admin' ? (
+            <Menu
+              visible={showMenu}
+              onDismiss={() => setShowMenu(false)}
+              anchor={
+                <IconButton
+                  icon="dots-vertical"
+                  size={24}
+                  onPress={() => setShowMenu(true)}
+                />
+              }
+            >
+              <Menu.Item
+                leadingIcon="pencil"
+                onPress={() => {
+                  setShowMenu(false);
+                  setShowEditModal(true);
+                }}
+                title="Edit Community"
+              />
+              <Menu.Item
+                leadingIcon="delete"
+                onPress={() => {
+                  setShowMenu(false);
+                  handleDeleteCommunity();
+                }}
+                title="Delete Community"
+                titleStyle={{ color: '#FF3B30' }}
+              />
+            </Menu>
           ) : (
-            <Button mode="contained" onPress={handleJoin}>Join</Button>
+            <Button 
+              mode={isMember ? "outlined" : "contained"}
+              onPress={isMember ? handleLeave : handleJoin}
+              style={styles.membershipButton}
+            >
+              {isMember ? 'Leave' : 'Join'}
+            </Button>
           )}
         </View>
       </View>
@@ -386,6 +456,36 @@ export default function CommunityScreen() {
           </View>
         </View>
 
+        <Card style={styles.section}>
+          <Card.Content>
+            <Text variant="titleMedium" style={styles.sectionTitle}>
+              Members ({memberCount})
+            </Text>
+            <View style={styles.membersList}>
+              {members.map((member) => (
+                <TouchableOpacity
+                  key={member.user_id}
+                  style={styles.memberItem}
+                  onPress={() => router.push(`/profile/${member.user_id}`)}
+                >
+                  <Avatar.Image
+                    size={40}
+                    source={{ uri: member.user.avatar_url || undefined }}
+                  />
+                  <View style={styles.memberInfo}>
+                    <Text variant="bodyMedium" style={styles.memberName}>
+                      {member.user.full_name || member.user.username}
+                    </Text>
+                    <Text variant="bodySmall" style={styles.memberRole}>
+                      {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Card.Content>
+        </Card>
+
         <Divider style={styles.divider} />
 
         {isMember && (
@@ -408,6 +508,15 @@ export default function CommunityScreen() {
         onPost={fetchPosts}
         communityId={id}
       />
+
+      {community && (
+        <EditCommunityModal
+          visible={showEditModal}
+          onDismiss={() => setShowEditModal(false)}
+          onUpdate={fetchCommunity}
+          community={community}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -420,14 +529,25 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
+    padding: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    backgroundColor: '#FFFFFF',
+    height: 64,
+  },
+  headerLeft: {
+    width: 48,
+    justifyContent: 'center',
+  },
+  headerCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   title: {
     flex: 1,
-    marginLeft: 8,
+    marginHorizontal: 12,
+    fontWeight: '600',
   },
   content: {
     flex: 1,
@@ -480,10 +600,13 @@ const styles = StyleSheet.create({
     elevation: 2,
     borderRadius: 8,
   },
-  headerActions: {
+  headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+  },
+  membershipButton: {
+    marginRight: 8,
+    borderRadius: 20,
   },
   mediaContainer: {
     width: '100%',
@@ -503,5 +626,31 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  section: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontWeight: 'bold',
+  },
+  membersList: {
+    marginTop: 8,
+  },
+  memberItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    borderRadius: 8,
+  },
+  memberInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  memberName: {
+    fontWeight: '500',
+  },
+  memberRole: {
+    color: '#666',
   },
 }); 

@@ -16,11 +16,17 @@ export default function DiscoverCommunitiesScreen() {
 
   const fetchCommunities = async () => {
     try {
-      // First fetch all public communities
+      // First get all public communities
       const { data: communitiesData, error: communitiesError } = await supabase
         .from('communities')
         .select(`
-          *,
+          id,
+          name,
+          description,
+          cover_image,
+          is_private,
+          creator_id,
+          created_at,
           creator:profiles (
             id,
             full_name,
@@ -29,12 +35,26 @@ export default function DiscoverCommunitiesScreen() {
           )
         `)
         .eq('is_private', false)
-        .ilike('name', `%${searchQuery}%`)
-        .order('member_count', { ascending: false });
+        .ilike('name', `%${searchQuery}%`);
 
       if (communitiesError) throw communitiesError;
 
-      // Fetch user's joined communities
+      // Get all active members for these communities
+      const { data: allMembers, error: membersError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .in('community_id', communitiesData.map(c => c.id))
+        .eq('status', 'active');
+
+      if (membersError) throw membersError;
+
+      // Count members for each community
+      const memberCounts = communitiesData.reduce((acc, community) => {
+        acc[community.id] = allMembers.filter(m => m.community_id === community.id).length;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // Get user's joined communities
       const { data: memberData, error: memberError } = await supabase
         .from('community_members')
         .select('community_id')
@@ -46,7 +66,14 @@ export default function DiscoverCommunitiesScreen() {
       // Create a Set of joined community IDs
       const joinedIds = new Set(memberData?.map(m => m.community_id) || []);
       setJoinedCommunities(joinedIds);
-      setCommunities(communitiesData || []);
+
+      // Combine all data
+      const communitiesWithCounts = communitiesData.map(community => ({
+        ...community,
+        member_count: memberCounts[community.id] || 0
+      }));
+
+      setCommunities(communitiesWithCounts);
     } catch (error) {
       console.error('Error fetching communities:', error);
       alert('Failed to load communities');
@@ -59,6 +86,28 @@ export default function DiscoverCommunitiesScreen() {
   useEffect(() => {
     fetchCommunities();
   }, [searchQuery]);
+
+  // Add this effect to listen for member count changes
+  useEffect(() => {
+    const channel = supabase
+      .channel('member_count_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'community_members'
+        },
+        () => {
+          fetchCommunities(); // Refresh when members change
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const handleJoin = async (communityId: string) => {
     try {
