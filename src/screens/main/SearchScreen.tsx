@@ -1,85 +1,151 @@
 import React, { useState } from 'react';
 import { View, StyleSheet, FlatList } from 'react-native';
-import { Text, Searchbar, Card, Avatar } from 'react-native-paper';
+import { Text, Searchbar, Card, Avatar, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
+import { Community } from '../../types/community';
 
 export default function SearchScreen() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [results, setResults] = useState([]);
+  const [communities, setCommunities] = useState<Community[]>([]);
   const [loading, setLoading] = useState(false);
-  const { supabase } = useAuth();
+  const [joinedCommunities, setJoinedCommunities] = useState<Set<string>>(new Set());
+  const { supabase, user } = useAuth();
 
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    if (query.length < 2) return;
-
+  const fetchCommunities = async (query: string = '') => {
     setLoading(true);
     try {
-      // Search users
-      const { data: users, error: usersError } = await supabase
-        .from('users')
-        .select('id, full_name, username, avatar_url')
-        .or(`full_name.ilike.%${query}%,username.ilike.%${query}%`)
-        .limit(5);
-
-      // Search communities
-      const { data: communities, error: communitiesError } = await supabase
+      // Get all public communities matching search
+      const { data: communitiesData, error: communitiesError } = await supabase
         .from('communities')
-        .select('id, name, description, cover_image')
-        .ilike('name', `%${query}%`)
-        .limit(5);
+        .select(`
+          id,
+          name,
+          description,
+          cover_image,
+          is_private,
+          creator_id,
+          created_at,
+          creator:profiles (
+            id,
+            full_name,
+            username,
+            avatar_url
+          )
+        `)
+        .eq('is_private', false)
+        .ilike('name', `%${query}%`);
 
-      if (usersError) throw usersError;
       if (communitiesError) throw communitiesError;
 
-      setResults([
-        ...(users || []).map(user => ({ ...user, type: 'user' })),
-        ...(communities || []).map(community => ({ ...community, type: 'community' }))
-      ]);
+      // Get member counts
+      const { data: allMembers, error: membersError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .in('community_id', communitiesData.map(c => c.id))
+        .eq('status', 'active');
+
+      if (membersError) throw membersError;
+
+      // Get user's joined communities
+      const { data: memberData, error: memberError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .eq('user_id', user?.id)
+        .eq('status', 'active');
+
+      if (memberError) throw memberError;
+
+      // Calculate member counts and set joined communities
+      const memberCounts = communitiesData.reduce((acc, community) => {
+        acc[community.id] = allMembers?.filter(m => m.community_id === community.id).length || 0;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const communitiesWithCounts = communitiesData.map(community => ({
+        ...community,
+        member_count: memberCounts[community.id] || 0
+      }));
+
+      setCommunities(communitiesWithCounts);
+      setJoinedCommunities(new Set(memberData?.map(m => m.community_id) || []));
     } catch (error) {
-      console.error('Search error:', error);
+      console.error('Error fetching communities:', error);
+      alert('Failed to load communities');
     } finally {
       setLoading(false);
     }
   };
 
-  const renderSearchResult = ({ item }: any) => (
-    <Card style={styles.resultCard}>
-      <Card.Title
-        title={item.type === 'user' ? (item.full_name || item.username) : item.name}
-        subtitle={item.type === 'user' ? '@' + item.username : 'Community'}
-        left={(props) => (
-          <Avatar.Image
-            {...props}
-            source={{ uri: item.avatar_url || item.cover_image }}
-            size={40}
-          />
-        )}
-      />
-    </Card>
-  );
+  const handleJoin = async (communityId: string) => {
+    try {
+      const { error } = await supabase
+        .from('community_members')
+        .insert({
+          community_id: communityId,
+          user_id: user?.id,
+          role: 'member',
+          status: 'active',
+        });
+
+      if (error) throw error;
+
+      setJoinedCommunities(prev => new Set([...prev, communityId]));
+      fetchCommunities(searchQuery);
+    } catch (error) {
+      console.error('Error joining community:', error);
+      alert('Failed to join community');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <Searchbar
-          placeholder="Search users and communities"
-          onChangeText={handleSearch}
+          placeholder="Search communities"
+          onChangeText={(query) => {
+            setSearchQuery(query);
+            fetchCommunities(query);
+          }}
           value={searchQuery}
           style={styles.searchBar}
         />
 
         <FlatList
-          data={results}
-          renderItem={renderSearchResult}
-          keyExtractor={(item) => `${item.type}-${item.id}`}
+          data={communities}
+          renderItem={({ item }) => (
+            <Card style={styles.card}>
+              <Card.Title
+                title={item.name}
+                subtitle={`${item.member_count} members`}
+                left={props => (
+                  item.cover_image ? (
+                    <Avatar.Image {...props} size={40} source={{ uri: item.cover_image }} />
+                  ) : (
+                    <Avatar.Icon {...props} size={40} icon="account-group" />
+                  )
+                )}
+              />
+              <Card.Content>
+                <Text variant="bodyMedium">{item.description || 'No description'}</Text>
+              </Card.Content>
+              <Card.Actions>
+                {joinedCommunities.has(item.id) ? (
+                  <Button mode="outlined">Already Joined</Button>
+                ) : (
+                  <Button mode="contained" onPress={() => handleJoin(item.id)}>
+                    Join Community
+                  </Button>
+                )}
+              </Card.Actions>
+            </Card>
+          )}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.list}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Text variant="bodyLarge">
-                {searchQuery.length > 0 
-                  ? 'No results found'
-                  : 'Start typing to search'}
+                {searchQuery ? 'No communities found' : 'Search for communities to join'}
               </Text>
             </View>
           }
@@ -96,13 +162,16 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 10,
+    padding: 16,
   },
   searchBar: {
-    marginBottom: 10,
+    marginBottom: 16,
   },
-  resultCard: {
-    marginBottom: 8,
+  list: {
+    gap: 16,
+  },
+  card: {
+    elevation: 2,
   },
   emptyContainer: {
     flex: 1,

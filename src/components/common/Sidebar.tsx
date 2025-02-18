@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Text, Searchbar, Button, List, Avatar, Divider, useTheme } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import { router } from 'expo-router';
 import { Community } from '../../types/community';
+import { useActiveCommunity } from '../../context/ActiveCommunityContext';
 
 export function Sidebar() {
   const { supabase, user } = useAuth();
@@ -11,6 +12,7 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const theme = useTheme();
+  const { activeCommunityId, setActiveCommunityId } = useActiveCommunity();
 
   const fetchJoinedCommunities = async () => {
     if (!user) return;
@@ -37,7 +39,8 @@ export function Sidebar() {
           cover_image,
           is_private,
           creator_id,
-          created_at
+          created_at,
+          updated_at
         `)
         .in('id', communityIds);
 
@@ -65,6 +68,11 @@ export function Sidebar() {
       }));
 
       setCommunities(communitiesWithCounts);
+      
+      // Set first community as active by default if none selected
+      if (!activeCommunityId && communitiesWithCounts.length > 0) {
+        setActiveCommunityId(communitiesWithCounts[0].id);
+      }
     } catch (error) {
       console.error('Error fetching communities:', error);
       alert('Failed to load communities');
@@ -99,10 +107,6 @@ export function Sidebar() {
     };
   }, []);
 
-  const filteredCommunities = communities.filter(community =>
-    community.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -128,54 +132,61 @@ export function Sidebar() {
         </Button>
       </View>
 
-      <ScrollView style={styles.communitiesList}>
-        {loading ? (
-          <View style={styles.emptyContainer}>
-            <Text>Loading communities...</Text>
-          </View>
-        ) : filteredCommunities.length > 0 ? (
-          filteredCommunities.map((community) => (
-            <List.Item
-              key={community.id}
-              title={community.name}
-              description={community.description || 'No description'}
-              left={(props) => (
-                community.cover_image ? (
-                  <Avatar.Image
-                    {...props}
-                    size={40}
-                    source={{ uri: community.cover_image }}
-                  />
-                ) : (
-                  <Avatar.Icon
-                    {...props}
-                    size={40}
-                    icon="account-group"
-                    color="#FFFFFF"
-                    style={{ backgroundColor: '#007AFF' }}
-                  />
-                )
-              )}
-              onPress={() => router.push(`/community/${community.id}`)}
-              style={styles.communityItem}
-              titleStyle={styles.communityTitle}
-              descriptionStyle={styles.communityDescription}
-              descriptionNumberOfLines={1}
-              right={(props) => (
-                <Text style={styles.memberCount}>
-                  {community.member_count} {community.member_count === 1 ? 'member' : 'members'}
-                </Text>
-              )}
-            />
-          ))
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {searchQuery ? 'No communities found' : 'No communities joined yet'}
-            </Text>
-          </View>
-        )}
-      </ScrollView>
+      {loading ? (
+        <View style={styles.emptyContainer}>
+          <Text>Loading communities...</Text>
+        </View>
+      ) : (
+        <ScrollView style={styles.communitiesList}>
+          {communities
+            .filter(community =>
+              community.name.toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map(community => (
+              <List.Item
+                key={community.id}
+                title={community.name}
+                description={community.description || 'No description'}
+                left={(props) => (
+                  community.cover_image ? (
+                    <Avatar.Image
+                      {...props}
+                      size={40}
+                      source={{ uri: community.cover_image }}
+                    />
+                  ) : (
+                    <Avatar.Icon
+                      {...props}
+                      size={40}
+                      icon="account-group"
+                      color="#FFFFFF"
+                      style={{ backgroundColor: '#007AFF' }}
+                    />
+                  )
+                )}
+                onPress={() => setActiveCommunityId(community.id)}
+                style={[
+                  styles.communityItem,
+                  activeCommunityId === community.id && styles.activeCommunityItem
+                ]}
+                titleStyle={[
+                  styles.communityTitle,
+                  activeCommunityId === community.id && styles.activeCommunityTitle
+                ]}
+                descriptionStyle={styles.communityDescription}
+                descriptionNumberOfLines={1}
+                right={(props) => (
+                  <Text style={[
+                    styles.memberCount,
+                    activeCommunityId === community.id && styles.activeMemberCount
+                  ]}>
+                    {community.member_count} {community.member_count === 1 ? 'member' : 'members'}
+                  </Text>
+                )}
+              />
+            ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -234,5 +245,17 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     color: '#666666',
+  },
+  activeCommunityItem: {
+    backgroundColor: '#007AFF15',
+    borderRadius: 8,
+  },
+  activeCommunityTitle: {
+    color: '#007AFF',
+    fontWeight: '700',
+  },
+  activeMemberCount: {
+    color: '#007AFF',
+    opacity: 0.8,
   },
 }); 

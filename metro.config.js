@@ -7,7 +7,14 @@ const config = getDefaultConfig(__dirname, {
   isCSSEnabled: true,
 });
 
-// Add resolution for .cjs files
+// Add resolution for .cjs files and handle reanimated
 config.resolver.sourceExts.push('cjs');
+config.resolver.assetExts = config.resolver.assetExts.filter(ext => ext !== 'ts');
+config.resolver.sourceExts.push('ts', 'tsx');
+
+// Set blockList directly
+config.resolver.blockList = [
+  new RegExp(`${__dirname}/node_modules/react-native-reanimated/mock`),
+];
 
 module.exports = config; 

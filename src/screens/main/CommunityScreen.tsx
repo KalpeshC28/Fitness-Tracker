@@ -7,7 +7,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Community } from '../../types/community';
 import { Post } from '../../types/post';
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
-import { Video } from 'expo-av';
+import { Video, ResizeMode } from 'expo-av';
 import { EditCommunityModal } from '../../components/modals/EditCommunityModal';
 
 interface CommunityMember {
@@ -22,7 +22,7 @@ interface CommunityMember {
 }
 
 export default function CommunityScreen() {
-  const { id } = useLocalSearchParams();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { supabase, user } = useAuth();
   const [community, setCommunity] = useState<Community | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -332,7 +332,7 @@ export default function CommunityScreen() {
               source={{ uri: post.media_urls[0] }}
               style={styles.media}
               useNativeControls
-              resizeMode="contain"
+              resizeMode={ResizeMode.CONTAIN}
               isLooping
             />
           ) : (

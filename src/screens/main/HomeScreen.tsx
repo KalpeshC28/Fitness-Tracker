@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback, TouchableOpacity, ScrollView } from 'react-native';
 import { Text, Card, Avatar, Button, IconButton, TextInput, Divider, Menu, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { neomorphShadow, glassMorphism, glowEffect } from '../../constants/theme';
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
 import { ProfileCompletionModal } from '../../components/modals/ProfileCompletionModal';
+import { useActiveCommunity } from '../../context/ActiveCommunityContext';
 
 const SIDEBAR_WIDTH = 300;
 
@@ -21,6 +22,14 @@ const colors = {
   text: '#666666',
 };
 
+const TABS = [
+  { id: 'community', label: 'Community', icon: 'post' },
+  { id: 'courses', label: 'Courses', icon: 'book-open-variant' },
+  { id: 'announcements', label: 'Updates', icon: 'bell' },
+  { id: 'members', label: 'Members', icon: 'account-group' },
+  { id: 'settings', label: 'Settings', icon: 'cog' }
+];
+
 export default function HomeScreen() {
   const { supabase, user } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -32,10 +41,13 @@ export default function HomeScreen() {
   const [selectedPost, setSelectedPost] = useState(null);
   const router = useRouter();
   const [showProfileCompletion, setShowProfileCompletion] = useState(false);
+  const { activeCommunityId } = useActiveCommunity();
+  const [activeCommName, setActiveCommName] = useState<string>('All Communities');
+  const [activeTab, setActiveTab] = useState('community');
 
   const fetchPosts = async () => {
     try {
-      // First get the communities the user is a member of
+      // Get the communities the user is a member of
       const { data: memberOf, error: memberError } = await supabase
         .from('community_members')
         .select('community_id')
@@ -47,8 +59,8 @@ export default function HomeScreen() {
       // Get the community IDs the user is a member of
       const communityIds = memberOf?.map(m => m.community_id) || [];
 
-      // Fetch posts from those communities
-      const { data, error } = await supabase
+      // Base query
+      let query = supabase
         .from('posts')
         .select(`
           *,
@@ -63,11 +75,29 @@ export default function HomeScreen() {
             name
           )
         `)
-        .in('community_id', communityIds)
         .order('created_at', { ascending: false });
+
+      // If active community is selected, filter for that community
+      if (activeCommunityId) {
+        query = query.eq('community_id', activeCommunityId);
+      } else {
+        query = query.in('community_id', communityIds);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setPosts(data || []);
+
+      // Update active community name
+      if (activeCommunityId) {
+        const community = data?.[0]?.community;
+        if (community) {
+          setActiveCommName(community.name);
+        }
+      } else {
+        setActiveCommName('All Communities');
+      }
     } catch (error) {
       console.error('Error fetching posts:', error);
       alert('Failed to load posts');
@@ -123,6 +153,10 @@ export default function HomeScreen() {
 
     checkProfileCompletion();
   }, [user]);
+
+  useEffect(() => {
+    fetchPosts();
+  }, [activeCommunityId]);
 
   const handleDeletePost = async (postId: string) => {
     try {
@@ -228,7 +262,9 @@ export default function HomeScreen() {
           size={26}
           onPress={() => toggleDrawer(true)}
         />
-        <Text variant="headlineSmall">TribeX</Text>
+        <Text variant="headlineSmall" style={styles.activeCommTitle}>
+          {activeCommName}
+        </Text>
       </View>
       <Divider style={styles.divider} />
     </>
@@ -256,14 +292,48 @@ export default function HomeScreen() {
     });
   };
 
+  const renderTabs = () => (
+    <View style={styles.tabsContainer}>
+      <ScrollView 
+        horizontal 
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabsContent}
+      >
+        {TABS.map(tab => (
+          <TouchableOpacity
+            key={tab.id}
+            style={[
+              styles.tab,
+              activeTab === tab.id && styles.activeTab
+            ]}
+            onPress={() => setActiveTab(tab.id)}
+          >
+            <IconButton
+              icon={tab.icon}
+              size={20}
+              iconColor={activeTab === tab.id ? '#007AFF' : '#666666'}
+            />
+            <Text style={[
+              styles.tabText,
+              activeTab === tab.id && styles.activeTabText
+            ]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: '#FFFFFF', // White for header area
     },
     contentContainer: {
+
       flex: 1,
-      backgroundColor: '#fff', // Light gray for all content below header
+      backgroundColor: '#fff',
     },
     header: {
       flexDirection: 'row',
@@ -276,13 +346,14 @@ export default function HomeScreen() {
       backgroundColor: '#E0E0E0',
     },
     content: {
-      padding: 5,
-      
+      paddingTop: 0,
+      paddingHorizontal: 5,
     },
     card: {
       marginBottom: 10,
       marginHorizontal: 8,
       backgroundColor: colors.surface,
+      marginTop: 5,
       ...glassMorphism,
     },
     emptyContainer: {
@@ -373,43 +444,106 @@ export default function HomeScreen() {
       fontSize: 14,
       color: '#007AFF',
     },
+    activeCommTitle: {
+      flex: 1,
+      marginLeft: 8,
+      color: '#007AFF',
+    },
+    tabsContainer: {
+      backgroundColor: '#fff',
+      borderBottomWidth: 1,
+      borderBottomColor: '#E0E0E0',
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 2,
+    },
+    tabsContent: {
+      paddingHorizontal: 8,
+    },
+    tab: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      marginHorizontal: 4,
+      borderRadius: 10,
+      backgroundColor: 'transparent',
+    },
+    activeTab: {
+      backgroundColor: '#007AFF15',
+    },
+    tabText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: '#666666',
+      marginLeft: -4,
+    },
+    activeTabText: {
+      color: '#007AFF',
+      fontWeight: '600',
+    },
+    tabContent: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 20,
+    },
   });
 
   return (
     <>
       <SafeAreaView style={styles.container}>
         {renderHeader()}
+        {renderTabs()}
         <View style={styles.contentContainer}>
-          <Button
-            mode="outlined"
-            icon="account-group"
-            onPress={() => router.push('/discover-communities')}
-            style={styles.discoverButton}
-            labelStyle={styles.discoverButtonLabel}
-          >
-            Discover Communities
-          </Button>
-          <FlatList
-            data={posts}
-            renderItem={renderPost}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.content}
-            style={{ backgroundColor: '#f1f5f9' }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={() => {
-                  setRefreshing(true);
-                  fetchPosts();
-                }}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text variant="bodyLarge">No posts yet</Text>
-              </View>
-            }
-          />
+          {activeTab === 'community' ? (
+            <FlatList
+              data={posts}
+              renderItem={renderPost}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.content}
+              style={{ backgroundColor: '#f1f5f9', marginTop: 0 }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={() => {
+                    setRefreshing(true);
+                    fetchPosts();
+                  }}
+                />
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text variant="bodyLarge">No posts yet</Text>
+                </View>
+              }
+            />
+          ) : activeTab === 'courses' ? (
+            <View style={styles.tabContent}>
+              <Text variant="headlineSmall">Courses Coming Soon</Text>
+              <Text variant="bodyMedium">Admin will be able to sell courses here</Text>
+            </View>
+          ) : activeTab === 'announcements' ? (
+            <View style={styles.tabContent}>
+              <Text variant="headlineSmall">Announcements Coming Soon</Text>
+              <Text variant="bodyMedium">Community announcements will appear here</Text>
+            </View>
+          ) : activeTab === 'members' ? (
+            <View style={styles.tabContent}>
+              <Text variant="headlineSmall">Members Coming Soon</Text>
+              <Text variant="bodyMedium">View and manage community members</Text>
+            </View>
+          ) : (
+            <View style={styles.tabContent}>
+              <Text variant="headlineSmall">Settings Coming Soon</Text>
+              <Text variant="bodyMedium">Community settings and preferences</Text>
+            </View>
+          )}
         </View>
       </SafeAreaView>
 
