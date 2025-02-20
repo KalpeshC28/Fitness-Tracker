@@ -10,6 +10,9 @@ import { neomorphShadow, glassMorphism, glowEffect } from '../../constants/theme
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
 import { ProfileCompletionModal } from '../../components/modals/ProfileCompletionModal';
 import { useActiveCommunity } from '../../context/ActiveCommunityContext';
+import { Course, CourseLesson } from '../../types/course';
+import { Video, ResizeMode } from 'expo-av';
+import { CreateCourseModal } from '../../components/modals/CreateCourseModal';
 
 const SIDEBAR_WIDTH = 300;
 
@@ -44,6 +47,11 @@ export default function HomeScreen() {
   const { activeCommunityId } = useActiveCommunity();
   const [activeCommName, setActiveCommName] = useState<string>('All Communities');
   const [activeTab, setActiveTab] = useState('community');
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [selectedLesson, setSelectedLesson] = useState<CourseLesson | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showCreateCourse, setShowCreateCourse] = useState(false);
 
   const fetchPosts = async () => {
     try {
@@ -107,6 +115,57 @@ export default function HomeScreen() {
     }
   };
 
+  const fetchCourses = async () => {
+    if (!activeCommunityId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('courses')
+        .select(`
+          *,
+          sections:course_sections(
+            *,
+            lessons:course_lessons(
+              id,
+              title,
+              description,
+              video_url,
+              duration,
+              order_index
+            )
+          )
+        `)
+        .eq('community_id', activeCommunityId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      console.log('Fetched courses:', data);
+      setCourses(data || []);
+    } catch (error) {
+      console.error('Error fetching courses:', error);
+      alert('Failed to load courses');
+    }
+  };
+
+  const checkAdminStatus = async () => {
+    if (!activeCommunityId || !user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('community_members')
+        .select('role')
+        .eq('community_id', activeCommunityId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) throw error;
+      setIsAdmin(data?.role === 'admin');
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+    }
+  };
+
   useEffect(() => {
     fetchPosts();
 
@@ -157,6 +216,23 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchPosts();
   }, [activeCommunityId]);
+
+  useEffect(() => {
+    if (activeTab === 'courses') {
+      fetchCourses();
+    }
+  }, [activeTab, activeCommunityId]);
+
+  useEffect(() => {
+    checkAdminStatus();
+  }, [activeCommunityId]);
+
+  useEffect(() => {
+    if (selectedLesson) {
+      console.log('Selected lesson:', selectedLesson);
+      console.log('Video URL:', selectedLesson.video_url);
+    }
+  }, [selectedLesson]);
 
   const handleDeletePost = async (postId: string) => {
     try {
@@ -325,13 +401,114 @@ export default function HomeScreen() {
     </View>
   );
 
+  const renderCourseContent = () => (
+    <View style={styles.courseContainer}>
+      {isAdmin && (
+        <Button
+          mode="contained"
+          icon="plus"
+          onPress={() => setShowCreateCourse(true)}
+          style={styles.createCourseButton}
+        >
+          Create Course
+        </Button>
+      )}
+
+      {selectedCourse ? (
+        <View style={styles.courseDetail}>
+          <View style={styles.courseHeader}>
+            <IconButton
+              icon="arrow-left"
+              onPress={() => {
+                setSelectedCourse(null);
+                setSelectedLesson(null);
+              }}
+            />
+            <Text variant="headlineSmall">{selectedCourse.title}</Text>
+          </View>
+          
+          {selectedLesson ? (
+            <View style={styles.lessonView}>
+              <Video
+                source={{ uri: selectedLesson.video_url }}
+                useNativeControls
+                style={styles.video}
+                resizeMode={ResizeMode.CONTAIN}
+                shouldPlay={false}
+                isLooping={false}
+                onError={(error) => {
+                  console.error('Video playback error:', error);
+                  alert('Error playing video');
+                }}
+              />
+              <Text variant="titleMedium">{selectedLesson.title}</Text>
+              <Text variant="bodyMedium">{selectedLesson.description}</Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.sectionsContainer}>
+              {selectedCourse.sections?.map((section) => (
+                <Card key={section.id} style={styles.sectionCard}>
+                  <Card.Title title={section.title} />
+                  <Card.Content>
+                    {section.lessons?.map((lesson) => (
+                      <TouchableOpacity
+                        key={lesson.id}
+                        style={styles.lessonItem}
+                        onPress={() => setSelectedLesson(lesson)}
+                      >
+                        <IconButton icon="play-circle" size={24} />
+                        <View style={styles.lessonInfo}>
+                          <Text variant="bodyMedium">{lesson.title}</Text>
+                          <Text variant="bodySmall">
+                            {Math.floor(lesson.duration / 60)}:{(lesson.duration % 60).toString().padStart(2, '0')}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </Card.Content>
+                </Card>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      ) : (
+        <FlatList
+          data={courses}
+          renderItem={({ item }) => (
+            <Card style={styles.courseCard} onPress={() => setSelectedCourse(item)}>
+              {item.cover_image && (
+                <Card.Cover source={{ uri: item.cover_image }} />
+              )}
+              <Card.Title
+                title={item.title}
+                subtitle={`${item.sections?.length || 0} sections`}
+              />
+              <Card.Content>
+                <Text variant="bodyMedium">{item.description}</Text>
+                <Text variant="bodySmall" style={styles.price}>
+                  {item.price > 0 ? `$${item.price.toFixed(2)}` : 'Free'}
+                </Text>
+              </Card.Content>
+            </Card>
+          )}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.courseList}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text variant="bodyLarge">No courses available</Text>
+            </View>
+          }
+        />
+      )}
+    </View>
+  );
+
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: '#FFFFFF', // White for header area
     },
     contentContainer: {
-
       flex: 1,
       backgroundColor: '#fff',
     },
@@ -493,6 +670,66 @@ export default function HomeScreen() {
       justifyContent: 'center',
       padding: 20,
     },
+    courseContainer: {
+      flex: 1,
+      backgroundColor: '#f5f5f5',
+    },
+    courseHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      backgroundColor: '#fff',
+      borderBottomWidth: 1,
+      borderBottomColor: '#E0E0E0',
+    },
+    courseList: {
+      padding: 16,
+      gap: 16,
+    },
+    courseCard: {
+      marginBottom: 16,
+      elevation: 2,
+    },
+    courseDetail: {
+      flex: 1,
+    },
+    sectionsContainer: {
+      flex: 1,
+    },
+    sectionCard: {
+      margin: 16,
+      elevation: 2,
+    },
+    lessonItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 8,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E0E0E0',
+    },
+    lessonInfo: {
+      flex: 1,
+      marginLeft: 8,
+    },
+    lessonView: {
+      flex: 1,
+      padding: 16,
+    },
+    video: {
+      width: '100%',
+      aspectRatio: 16/9,
+      marginBottom: 16,
+      backgroundColor: '#000',
+      borderRadius: 8,
+    },
+    createCourseButton: {
+      margin: 16,
+    },
+    price: {
+      marginTop: 8,
+      color: '#007AFF',
+      fontWeight: '600',
+    },
   });
 
   return (
@@ -524,10 +761,7 @@ export default function HomeScreen() {
               }
             />
           ) : activeTab === 'courses' ? (
-            <View style={styles.tabContent}>
-              <Text variant="headlineSmall">Courses Coming Soon</Text>
-              <Text variant="bodyMedium">Admin will be able to sell courses here</Text>
-            </View>
+            renderCourseContent()
           ) : activeTab === 'announcements' ? (
             <View style={styles.tabContent}>
               <Text variant="headlineSmall">Announcements Coming Soon</Text>
@@ -575,6 +809,16 @@ export default function HomeScreen() {
         visible={showProfileCompletion}
         onComplete={() => setShowProfileCompletion(false)}
         onClose={() => setShowProfileCompletion(false)}
+      />
+
+      <CreateCourseModal
+        visible={showCreateCourse}
+        onDismiss={() => setShowCreateCourse(false)}
+        onSuccess={() => {
+          setShowCreateCourse(false);
+          fetchCourses();
+        }}
+        communityId={activeCommunityId || ''}
       />
     </>
   );

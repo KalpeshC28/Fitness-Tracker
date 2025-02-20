@@ -245,17 +245,21 @@ TribeX/
 ├── src/                   # Source code
 │ ├── components/          # Reusable components
 │ │ ├── common/           # Shared components
-│ │ │ ├── Button.tsx
-│ │ │ ├── Card.tsx
+│ │ │ ├── CreatePostFAB.tsx
+│ │ │ ├── SideBar.tsx
 │ │ │ └── Input.tsx
-│ │ ├── feed/            # Feed-related components
-│ │ ├── community/       # Community components
-│ │ └── marketplace/     # Marketplace components
+│ │ ├── modals/            # Feed-related components
+│ │   ├── CreateCourseModal.tsx
+│ │   ├── CreatePostModal.tsx
+│ │   └── EditCommunityModal.tsx
+│ │   └── ProfileCompletionModal.tsx
+│ │ 
+│ │ 
 │ ├── constants/         # App constants
-│ │ ├── Colors.ts
-│ │ ├── Layout.ts
+│ │ ├── theme.ts
 │ │ └── Config.ts
-│ ├── hooks/            # Custom hooks
+│ │ 
+│ ├── context/            # Custom hooks
 │ │ ├── useAuth.ts
 │ │ ├── useCommunity.ts
 │ │ └── useProducts.ts
