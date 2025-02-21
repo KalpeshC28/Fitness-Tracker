@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, Modal, ScrollView } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, StyleSheet, Modal, ScrollView, Image } from 'react-native';
 import { Text, TextInput, Button, IconButton, Portal } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
-import { ErrorBoundary } from '../../context/ErrorBoundary';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+import { Video, AVPlaybackStatus, ResizeMode } from 'expo-av';
 
 interface CreateCourseModalProps {
   visible: boolean;
@@ -14,6 +15,7 @@ interface CreateCourseModalProps {
 
 export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }: CreateCourseModalProps) {
   const { supabase } = useAuth();
+  const videoRef = useRef<Video>(null);
   const [loading, setLoading] = useState(false);
   const [courseData, setCourseData] = useState({
     title: '',
@@ -25,7 +27,9 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
     lessons: Array<{
       title: string;
       videoUri: string | null;
+      thumbnailUri: string | null;
       description: string;
+      duration: number;
     }>;
   }>>([]);
 
@@ -38,31 +42,54 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
     newSections[sectionIndex].lessons.push({
       title: '',
       videoUri: null,
+      thumbnailUri: null,
       description: '',
+      duration: 0,
     });
     setSections(newSections);
   };
 
   const handleVideoSelect = async (sectionIndex: number, lessonIndex: number) => {
     try {
-      // Request permission
       const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permissionResult.granted) {
         alert('Permission to access media library is required!');
         return;
       }
 
-      // Launch picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         allowsEditing: true,
         quality: 1,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        const newSections = [...sections];
-        newSections[sectionIndex].lessons[lessonIndex].videoUri = result.assets[0].uri;
-        setSections(newSections);
+      if (!result.canceled && result.assets[0] && videoRef.current) {
+        const videoUri = result.assets[0].uri;
+
+        // Generate thumbnail
+        const { uri: thumbnailUri } = await VideoThumbnails.getThumbnailAsync(videoUri, {
+          time: 1000,
+        });
+
+        // Load video using ref
+        await videoRef.current.loadAsync({ uri: videoUri });
+        const status = await videoRef.current.getStatusAsync();
+
+        if (status.isLoaded) {
+          const duration = Math.round(status.durationMillis / 1000);
+                    
+          const newSections = [...sections];
+          newSections[sectionIndex].lessons[lessonIndex] = {
+            ...newSections[sectionIndex].lessons[lessonIndex],
+            videoUri,
+            thumbnailUri,
+            duration
+          };
+          setSections(newSections);
+        }
+
+        // Clean up
+        await videoRef.current.unloadAsync();
       }
     } catch (error) {
       console.error('Error selecting video:', error);
@@ -70,21 +97,18 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
     }
   };
 
-  const uploadVideo = async (uri: string): Promise<string> => {
+  const uploadThumbnail = async (uri: string): Promise<string> => {
     try {
-      // Generate a unique filename
-      const filename = `${Date.now()}.mp4`;
-      const filePath = `course-videos/${filename}`;
+      const filename = `${Date.now()}.jpg`;
+      const filePath = `course-thumbnails/${filename}`;
 
-      // Create FormData
       const formData = new FormData();
       formData.append('file', {
         uri,
-        type: 'video/mp4',
+        type: 'image/jpeg',
         name: filename,
       } as any);
 
-      // Upload using fetch directly to Supabase storage
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('No session found');
 
@@ -102,7 +126,46 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
         throw new Error(`Upload failed: ${response.statusText}`);
       }
 
-      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('course-content')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw new Error(`Thumbnail upload failed: ${error.message}`);
+    }
+  };
+
+  const uploadVideo = async (uri: string): Promise<string> => {
+    try {
+      const filename = `${Date.now()}.mp4`;
+      const filePath = `course-videos/${filename}`;
+
+      const formData = new FormData();
+      formData.append('file', {
+        uri,
+        type: 'video/mp4',
+        name: filename,
+      } as any);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('No session found');
+
+      const storageUrl = `${supabase.storageUrl}/object/course-content/${filePath}`;
+      
+      const response = await fetch(storageUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
       const { data: { publicUrl } } = supabase.storage
         .from('course-content')
         .getPublicUrl(filePath);
@@ -122,7 +185,6 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
 
     setLoading(true);
     try {
-      // Create course
       const { data: course, error: courseError } = await supabase
         .from('courses')
         .insert({
@@ -136,11 +198,9 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
 
       if (courseError) throw courseError;
 
-      // Process sections sequentially
       for (const [sectionIndex, section] of sections.entries()) {
         if (!section.title.trim()) continue;
 
-        // Create section
         const { data: sectionData, error: sectionError } = await supabase
           .from('course_sections')
           .insert({
@@ -153,16 +213,13 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
 
         if (sectionError) throw sectionError;
 
-        // Process lessons sequentially
         for (const [lessonIndex, lesson] of section.lessons.entries()) {
           if (!lesson.title.trim() || !lesson.videoUri) continue;
 
           try {
-            // Upload video and get URL
             const videoUrl = await uploadVideo(lesson.videoUri);
-            console.log('Video uploaded successfully:', videoUrl);
+            const thumbnailUrl = await uploadThumbnail(lesson.thumbnailUri!);
 
-            // Create lesson with video URL
             const { error: lessonError } = await supabase
               .from('course_lessons')
               .insert({
@@ -170,8 +227,9 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
                 title: lesson.title.trim(),
                 description: lesson.description.trim(),
                 video_url: videoUrl,
+                thumbnail_url: thumbnailUrl,
+                duration: lesson.duration,
                 order_index: lessonIndex,
-                duration: 0, // You might want to get this from the video metadata
               });
 
             if (lessonError) throw lessonError;
@@ -193,121 +251,133 @@ export function CreateCourseModal({ visible, onDismiss, onSuccess, communityId }
     }
   };
 
-  // Rest of the render code remains the same
   return (
     <Portal>
       <Modal visible={visible} onDismiss={onDismiss}>
-        <ErrorBoundary>
-          <View style={styles.container}>
-            <View style={styles.header}>
-              <IconButton icon="close" onPress={onDismiss} />
-              <Text variant="headlineSmall">Create Course</Text>
-              <Button
-                mode="contained"
-                onPress={handleCreate}
-                loading={loading}
-                disabled={loading || !courseData.title.trim()}
-              >
-                Create
-              </Button>
-            </View>
+        <View style={styles.container}>
+          {/* Hidden Video component for duration extraction */}
+          <Video
+            ref={videoRef}
+            style={{ width: 0, height: 0 }}
+            useNativeControls={false}
+            resizeMode={ResizeMode.CONTAIN}
+          />
 
-            <ScrollView style={styles.content}>
-              <TextInput
-                label="Course Title"
-                value={courseData.title}
-                onChangeText={(text) => setCourseData({ ...courseData, title: text })}
-                style={styles.input}
-              />
-
-              <TextInput
-                label="Description"
-                value={courseData.description}
-                onChangeText={(text) => setCourseData({ ...courseData, description: text })}
-                multiline
-                numberOfLines={3}
-                style={styles.input}
-              />
-
-              <TextInput
-                label="Price"
-                value={courseData.price}
-                onChangeText={(text) => setCourseData({ ...courseData, price: text })}
-                keyboardType="numeric"
-                style={styles.input}
-              />
-
-              {sections.map((section, sectionIndex) => (
-                <View key={sectionIndex} style={styles.section}>
-                  <TextInput
-                    label={`Section ${sectionIndex + 1} Title`}
-                    value={section.title}
-                    onChangeText={(text) => {
-                      const newSections = [...sections];
-                      newSections[sectionIndex].title = text;
-                      setSections(newSections);
-                    }}
-                    style={styles.input}
-                  />
-
-                  {section.lessons.map((lesson, lessonIndex) => (
-                    <View key={lessonIndex} style={styles.lesson}>
-                      <TextInput
-                        label={`Lesson ${lessonIndex + 1} Title`}
-                        value={lesson.title}
-                        onChangeText={(text) => {
-                          const newSections = [...sections];
-                          newSections[sectionIndex].lessons[lessonIndex].title = text;
-                          setSections(newSections);
-                        }}
-                        style={styles.input}
-                      />
-
-                      <TextInput
-                        label="Lesson Description"
-                        value={lesson.description}
-                        onChangeText={(text) => {
-                          const newSections = [...sections];
-                          newSections[sectionIndex].lessons[lessonIndex].description = text;
-                          setSections(newSections);
-                        }}
-                        multiline
-                        style={styles.input}
-                      />
-
-                      <Button
-                        mode="outlined"
-                        onPress={() => handleVideoSelect(sectionIndex, lessonIndex)}
-                        icon={lesson.videoUri ? "check" : "video"}
-                        style={styles.videoButton}
-                      >
-                        {lesson.videoUri ? 'Video Selected' : 'Select Video'}
-                      </Button>
-                    </View>
-                  ))}
-
-                  <Button
-                    mode="outlined"
-                    onPress={() => handleAddLesson(sectionIndex)}
-                    icon="plus"
-                    style={styles.addButton}
-                  >
-                    Add Lesson
-                  </Button>
-                </View>
-              ))}
-
-              <Button
-                mode="outlined"
-                onPress={handleAddSection}
-                icon="plus"
-                style={styles.addButton}
-              >
-                Add Section
-              </Button>
-            </ScrollView>
+          <View style={styles.header}>
+            <IconButton icon="close" onPress={onDismiss} />
+            <Text variant="headlineSmall">Create Course</Text>
+            <Button
+              mode="contained"
+              onPress={handleCreate}
+              loading={loading}
+              disabled={loading || !courseData.title.trim()}
+            >
+              Create
+            </Button>
           </View>
-        </ErrorBoundary>
+
+          <ScrollView style={styles.content}>
+            <TextInput
+              label="Course Title"
+              value={courseData.title}
+              onChangeText={(text) => setCourseData({ ...courseData, title: text })}
+              style={styles.input}
+            />
+
+            <TextInput
+              label="Description"
+              value={courseData.description}
+              onChangeText={(text) => setCourseData({ ...courseData, description: text })}
+              multiline
+              numberOfLines={3}
+              style={styles.input}
+            />
+
+            <TextInput
+              label="Price"
+              value={courseData.price}
+              onChangeText={(text) => setCourseData({ ...courseData, price: text })}
+              keyboardType="numeric"
+              style={styles.input}
+            />
+
+            {sections.map((section, sectionIndex) => (
+              <View key={sectionIndex} style={styles.section}>
+                <TextInput
+                  label={`Section ${sectionIndex + 1} Title`}
+                  value={section.title}
+                  onChangeText={(text) => {
+                    const newSections = [...sections];
+                    newSections[sectionIndex].title = text;
+                    setSections(newSections);
+                  }}
+                  style={styles.input}
+                />
+
+                {section.lessons.map((lesson, lessonIndex) => (
+                  <View key={lessonIndex} style={styles.lesson}>
+                    <TextInput
+                      label={`Lesson ${lessonIndex + 1} Title`}
+                      value={lesson.title}
+                      onChangeText={(text) => {
+                        const newSections = [...sections];
+                        newSections[sectionIndex].lessons[lessonIndex].title = text;
+                        setSections(newSections);
+                      }}
+                      style={styles.input}
+                    />
+
+                    <TextInput
+                      label="Lesson Description"
+                      value={lesson.description}
+                      onChangeText={(text) => {
+                        const newSections = [...sections];
+                        newSections[sectionIndex].lessons[lessonIndex].description = text;
+                        setSections(newSections);
+                      }}
+                      multiline
+                      style={styles.input}
+                    />
+
+                    <Button
+                      mode="outlined"
+                      onPress={() => handleVideoSelect(sectionIndex, lessonIndex)}
+                      icon={lesson.videoUri ? "check" : "video"}
+                      style={styles.videoButton}
+                    >
+                      {lesson.videoUri ? 'Video Selected' : 'Select Video'}
+                    </Button>
+
+                    {lesson.thumbnailUri && (
+                      <Image
+                        source={{ uri: lesson.thumbnailUri }}
+                        style={styles.thumbnail}
+                      />
+                    )}
+                  </View>
+                ))}
+
+                <Button
+                  mode="outlined"
+                  onPress={() => handleAddLesson(sectionIndex)}
+                  icon="plus"
+                  style={styles.addButton}
+                >
+                  Add Lesson
+                </Button>
+              </View>
+            ))}
+
+            <Button
+              mode="outlined"
+              onPress={handleAddSection}
+              icon="plus"
+              style={styles.addButton}
+            >
+              Add Section
+            </Button>
+          </ScrollView>
+        </View>
       </Modal>
     </Portal>
   );
@@ -351,6 +421,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   videoButton: {
+    marginTop: 8,
+  },
+  thumbnail: {
+    width: 80,
+    height: 45,
+    borderRadius: 4,
     marginTop: 8,
   },
 });

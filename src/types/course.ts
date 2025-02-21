@@ -26,7 +26,8 @@ export interface CourseLesson {
   title: string;
   description: string | null;
   video_url: string | null;
-  duration: number;
+  thumbnail_url: string | null; // Add this field for thumbnails
+  duration: number; // Duration in seconds
   order_index: number;
 }
 
@@ -34,4 +35,4 @@ export interface UserProgress {
   user_id: string;
   lesson_id: string;
   completed_at: string;
-} 
+}

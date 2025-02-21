@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback, TouchableOpacity, ScrollView } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, Animated, TouchableWithoutFeedback, TouchableOpacity, ScrollView, Image } from 'react-native';
 import { Text, Card, Avatar, Button, IconButton, TextInput, Divider, Menu, FAB } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -52,6 +52,7 @@ export default function HomeScreen() {
   const [selectedLesson, setSelectedLesson] = useState<CourseLesson | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showCreateCourse, setShowCreateCourse] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   const fetchPosts = async () => {
     try {
@@ -131,7 +132,8 @@ export default function HomeScreen() {
               description,
               video_url,
               duration,
-              order_index
+              order_index,
+              thumbnail_url
             )
           )
         `)
@@ -140,7 +142,7 @@ export default function HomeScreen() {
 
       if (error) throw error;
 
-      console.log('Fetched courses:', data);
+      // console.log('Fetched courses:', data);
       setCourses(data || []);
     } catch (error) {
       console.error('Error fetching courses:', error);
@@ -426,21 +428,35 @@ export default function HomeScreen() {
             />
             <Text variant="headlineSmall">{selectedCourse.title}</Text>
           </View>
-          
+
           {selectedLesson ? (
             <View style={styles.lessonView}>
-              <Video
-                source={{ uri: selectedLesson.video_url }}
-                useNativeControls
-                style={styles.video}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={false}
-                isLooping={false}
-                onError={(error) => {
-                  console.error('Video playback error:', error);
-                  alert('Error playing video');
-                }}
-              />
+              {/* Video Player with Thumbnail Until It Starts Playing */}
+              <View style={styles.videoContainer}>
+                {!isVideoPlaying && selectedLesson.thumbnail_url && (
+                  <Image
+                    source={{ uri: selectedLesson.thumbnail_url }}
+                    style={[styles.video, styles.thumbnailOverlay]}
+                    resizeMode="cover"
+                  />
+                )}
+
+                <Video
+                  source={{ uri: selectedLesson.video_url }}
+                  useNativeControls
+                  style={styles.video}
+                  resizeMode={ResizeMode.CONTAIN}
+                  shouldPlay={false}
+                  isLooping={false}
+                  onLoadStart={() => setIsVideoPlaying(false)} // Keep thumbnail visible
+                  onReadyForDisplay={() => setIsVideoPlaying(true)} // Hide thumbnail when video is ready
+                  onError={(error) => {
+                    console.error("Video playback error:", error);
+                    alert("Error playing video");
+                  }}
+                />
+              </View>
+
               <Text variant="titleMedium">{selectedLesson.title}</Text>
               <Text variant="bodyMedium">{selectedLesson.description}</Text>
             </View>
@@ -454,13 +470,27 @@ export default function HomeScreen() {
                       <TouchableOpacity
                         key={lesson.id}
                         style={styles.lessonItem}
-                        onPress={() => setSelectedLesson(lesson)}
+                        onPress={() => {
+                          setSelectedLesson(lesson);
+                          
+                        }}
                       >
-                        <IconButton icon="play-circle" size={24} />
+                        {lesson.thumbnail_url && (
+                          <Image
+                            source={{ uri: lesson.thumbnail_url }}
+                            style={styles.thumbnail}
+                            resizeMode="cover"
+                            onError={(error) => {
+                              console.error("Image Load Error:", error);
+                            }}
+                          />
+                        )}
+
                         <View style={styles.lessonInfo}>
                           <Text variant="bodyMedium">{lesson.title}</Text>
                           <Text variant="bodySmall">
-                            {Math.floor(lesson.duration / 60)}:{(lesson.duration % 60).toString().padStart(2, '0')}
+                            {Math.floor(lesson.duration / 60)}:
+                            {(lesson.duration % 60).toString().padStart(2, "0")}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -476,17 +506,12 @@ export default function HomeScreen() {
           data={courses}
           renderItem={({ item }) => (
             <Card style={styles.courseCard} onPress={() => setSelectedCourse(item)}>
-              {item.cover_image && (
-                <Card.Cover source={{ uri: item.cover_image }} />
-              )}
-              <Card.Title
-                title={item.title}
-                subtitle={`${item.sections?.length || 0} sections`}
-              />
+              {item.cover_image && <Card.Cover source={{ uri: item.cover_image }} />}
+              <Card.Title title={item.title} subtitle={`${item.sections?.length || 0} sections`} />
               <Card.Content>
                 <Text variant="bodyMedium">{item.description}</Text>
                 <Text variant="bodySmall" style={styles.price}>
-                  {item.price > 0 ? `$${item.price.toFixed(2)}` : 'Free'}
+                  {item.price > 0 ? `$${item.price.toFixed(2)}` : "Free"}
                 </Text>
               </Card.Content>
             </Card>
@@ -730,6 +755,26 @@ export default function HomeScreen() {
       color: '#007AFF',
       fontWeight: '600',
     },
+    thumbnail: {
+      width: 80,
+      height: 45,
+      borderRadius: 4,
+      marginRight: 8,
+    },
+    thumbnailOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 1, // Keeps the thumbnail above the video until it starts
+    },
+    videoContainer: {
+      position: "relative",
+      width: "100%",
+      height: 250,
+    },
+    
   });
 
   return (
