@@ -5,10 +5,10 @@ export interface Post {
   media_type: 'none' | 'image' | 'video';
   author_id: string;
   community_id: string | null;
+  likes_count:any;
+  comments_count:any;
   created_at: string;
   updated_at: string;
-  likes_count: number;
-  comments_count: number;
   author?: {
     id: string;
     full_name: string | null;
