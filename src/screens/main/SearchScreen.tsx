@@ -4,6 +4,7 @@ import { Text, Searchbar, Card, Avatar, Button } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { Community } from '../../types/community';
+import { router } from 'expo-router'; // Add this import
 
 export default function SearchScreen() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -15,7 +16,6 @@ export default function SearchScreen() {
   const fetchCommunities = async (query: string = '') => {
     setLoading(true);
     try {
-      // Get all public communities matching search
       const { data: communitiesData, error: communitiesError } = await supabase
         .from('communities')
         .select(`
@@ -38,7 +38,6 @@ export default function SearchScreen() {
 
       if (communitiesError) throw communitiesError;
 
-      // Get member counts
       const { data: allMembers, error: membersError } = await supabase
         .from('community_members')
         .select('community_id')
@@ -47,7 +46,6 @@ export default function SearchScreen() {
 
       if (membersError) throw membersError;
 
-      // Get user's joined communities
       const { data: memberData, error: memberError } = await supabase
         .from('community_members')
         .select('community_id')
@@ -56,7 +54,6 @@ export default function SearchScreen() {
 
       if (memberError) throw memberError;
 
-      // Calculate member counts and set joined communities
       const memberCounts = communitiesData.reduce((acc, community) => {
         acc[community.id] = allMembers?.filter(m => m.community_id === community.id).length || 0;
         return acc;
@@ -98,6 +95,11 @@ export default function SearchScreen() {
     }
   };
 
+  const navigateToCommunity = (communityId: string) => {
+    // Using Expo Router to navigate to the community screen
+    router.push(`/community/${communityId}`);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
@@ -131,7 +133,12 @@ export default function SearchScreen() {
               </Card.Content>
               <Card.Actions>
                 {joinedCommunities.has(item.id) ? (
-                  <Button mode="outlined">Already Joined</Button>
+                  <Button 
+                    mode="outlined"
+                    onPress={() => navigateToCommunity(item.id)}
+                  >
+                    Already Joined
+                  </Button>
                 ) : (
                   <Button mode="contained" onPress={() => handleJoin(item.id)}>
                     Join Community
@@ -179,4 +186,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
-}); 
+});

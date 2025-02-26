@@ -1,7 +1,9 @@
+// hooks/usePosts.ts
 import { useState, useEffect } from 'react';
-import { Post } from '../types/post';
+import { Post, Comment } from '../types/post';
 import { useAuth } from '../context/AuthContext';
 import { useActiveCommunity } from '../context/ActiveCommunityContext';
+import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 export const usePosts = () => {
   const { supabase, user } = useAuth();
@@ -11,7 +13,7 @@ export const usePosts = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [activeCommName, setActiveCommName] = useState('All Communities');
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (tab: string = 'community') => {
     try {
       setRefreshing(true);
       const { data: memberOf } = await supabase
@@ -24,9 +26,12 @@ export const usePosts = () => {
       let query = supabase
         .from('posts')
         .select(`
-          *,
+          id, content, media_urls, media_type, author_id, community_id, 
+          likes_count, comments_count, created_at, updated_at,
           author:profiles(id, full_name, username, avatar_url),
-          community:communities(id, name)
+          community:communities(id, name),
+          likes(user_id),
+          comments(id, content, user_id, created_at, profiles(full_name, username, avatar_url))
         `)
         .order('created_at', { ascending: false });
 
@@ -36,11 +41,45 @@ export const usePosts = () => {
         query = query.in('community_id', communityIds);
       }
 
-      const { data } = await query;
-      setPosts(data || []);
+      if (tab === 'announcements') {
+        const { data: admins } = await supabase
+          .from('community_members')
+          .select('user_id')
+          .eq('community_id', activeCommunityId)
+          .eq('role', 'admin');
+        const adminIds = admins?.map(a => a.user_id) || [];
+        query = query.in('author_id', adminIds);
+      }
 
-      if (activeCommunityId && data?.[0]?.community) {
-        setActiveCommName(data[0].community.name);
+      const { data } = await query;
+
+      const enrichedPosts: Post[] = data?.map((post: any) => ({
+        ...post,
+        isLiked: post.likes.some((like: { user_id: string }) => like.user_id === user?.id),
+        comments: post.comments.map((comment: any) => ({
+          id: comment.id,
+          content: comment.content,
+          user_id: comment.user_id,
+          created_at: comment.created_at,
+          author: {
+            full_name: comment.profiles?.full_name || null,
+            username: comment.profiles?.username || null,
+            avatar_url: comment.profiles?.avatar_url || null,
+          },
+        })),
+      })) || [];
+
+      setPosts(enrichedPosts);
+
+      // Set activeCommName based on activeCommunityId
+      if (activeCommunityId) {
+        const { data: communityData, error: communityError } = await supabase
+          .from('communities')
+          .select('name')
+          .eq('id', activeCommunityId)
+          .single();
+        if (communityError) throw communityError;
+        setActiveCommName(communityData?.name || 'Unknown Community');
       } else {
         setActiveCommName('All Communities');
       }
@@ -53,14 +92,72 @@ export const usePosts = () => {
   };
 
   useEffect(() => {
-    fetchPosts();
-    const channel = supabase
+    fetchPosts('community');
+
+    const postsChannel = supabase
       .channel('posts_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchPosts)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, (payload: RealtimePostgresChangesPayload<any>) => {
+        setPosts((prevPosts) => {
+          if (payload.eventType === 'INSERT') {
+            const newPost: Post = {
+              ...payload.new,
+              likes: [],
+              comments: [],
+              isLiked: false,
+            };
+            return [newPost, ...prevPosts];
+          } else if (payload.eventType === 'UPDATE') {
+            return prevPosts.map(post =>
+              post.id === payload.new.id ? { ...post, ...payload.new } : post
+            );
+          } else if (payload.eventType === 'DELETE') {
+            return prevPosts.filter(post => post.id !== payload.old.id);
+          }
+          return prevPosts;
+        });
+      })
+      .subscribe();
+
+    const likesChannel = supabase
+      .channel('likes_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => fetchPosts())
+      .subscribe();
+
+    const commentsChannel = supabase
+      .channel('comments_changes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, async (payload: RealtimePostgresChangesPayload<any>) => {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('full_name, username, avatar_url')
+          .eq('id', payload.new.user_id)
+          .single();
+
+        const newComment: Comment = {
+          id: payload.new.id,
+          content: payload.new.content,
+          user_id: payload.new.user_id,
+          created_at: payload.new.created_at,
+          author: {
+            full_name: profile?.full_name || null,
+            username: profile?.username || null,
+            avatar_url: profile?.avatar_url || null,
+          },
+        };
+
+        setPosts(prevPosts =>
+          prevPosts.map(post =>
+            post.id === payload.new.post_id
+              ? { ...post, comments: [...post.comments, newComment] }
+              : post
+          )
+        );
+      })
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(postsChannel);
+      supabase.removeChannel(likesChannel);
+      supabase.removeChannel(commentsChannel);
     };
   }, [activeCommunityId]);
 
