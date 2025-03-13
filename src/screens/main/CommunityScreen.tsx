@@ -488,7 +488,7 @@ export default function CommunityScreen() {
 
         <Divider style={styles.divider} />
 
-        {isMember && (
+        {/* {isMember && (
           <Button
             mode="contained"
             icon="plus"
@@ -497,9 +497,9 @@ export default function CommunityScreen() {
           >
             Create Post
           </Button>
-        )}
+        )} */}
 
-        {posts.map(renderPost)}
+        {/* {posts.map(renderPost)} */}
       </ScrollView>
 
       <CreatePostModal

@@ -16,11 +16,13 @@ export const usePosts = () => {
   const fetchPosts = async (tab: string = 'community') => {
     try {
       setRefreshing(true);
-      const { data: memberOf } = await supabase
+      const { data: memberOf, error: memberError } = await supabase
         .from('community_members')
         .select('community_id')
         .eq('user_id', user?.id)
         .eq('status', 'active');
+
+      if (memberError) throw memberError;
 
       const communityIds = memberOf?.map(m => m.community_id) || [];
       let query = supabase
@@ -42,19 +44,30 @@ export const usePosts = () => {
       }
 
       if (tab === 'announcements') {
-        const { data: admins } = await supabase
+        const { data: admins, error: adminError } = await supabase
           .from('community_members')
           .select('user_id')
           .eq('community_id', activeCommunityId)
           .eq('role', 'admin');
+        if (adminError) throw adminError;
         const adminIds = admins?.map(a => a.user_id) || [];
         query = query.in('author_id', adminIds);
       }
 
-      const { data } = await query;
+      const { data, error } = await query;
+      if (error) throw error;
 
       const enrichedPosts: Post[] = data?.map((post: any) => ({
-        ...post,
+        id: post.id,
+        content: post.content,
+        media_urls: post.media_urls || [],
+        media_type: post.media_type || 'none',
+        author_id: post.author_id,
+        community_id: post.community_id || null,
+        likes_count: post.likes_count || 0,
+        comments_count: post.comments_count || 0,
+        created_at: post.created_at,
+        updated_at: post.updated_at,
         isLiked: post.likes.some((like: { user_id: string }) => like.user_id === user?.id),
         comments: post.comments.map((comment: any) => ({
           id: comment.id,
@@ -67,6 +80,17 @@ export const usePosts = () => {
             avatar_url: comment.profiles?.avatar_url || null,
           },
         })),
+        author: post.author
+          ? {
+              id: post.author.id,
+              full_name: post.author.full_name || null,
+              username: post.author.username || null,
+              avatar_url: post.author.avatar_url || null,
+            }
+          : undefined,
+        community: post.community
+          ? { id: post.community.id, name: post.community.name }
+          : undefined,
       })) || [];
 
       setPosts(enrichedPosts);
@@ -96,62 +120,87 @@ export const usePosts = () => {
 
     const postsChannel = supabase
       .channel('posts_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, (payload: RealtimePostgresChangesPayload<any>) => {
-        setPosts((prevPosts) => {
-          if (payload.eventType === 'INSERT') {
-            const newPost: Post = {
-              ...payload.new,
-              likes: [],
-              comments: [],
-              isLiked: false,
-            };
-            return [newPost, ...prevPosts];
-          } else if (payload.eventType === 'UPDATE') {
-            return prevPosts.map(post =>
-              post.id === payload.new.id ? { ...post, ...payload.new } : post
-            );
-          } else if (payload.eventType === 'DELETE') {
-            return prevPosts.filter(post => post.id !== payload.old.id);
-          }
-          return prevPosts;
-        });
-      })
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'posts' },
+        (payload: RealtimePostgresChangesPayload<any>) => {
+          setPosts((prevPosts) => {
+            if (payload.eventType === 'INSERT') {
+              const newPost: Post = {
+                id: payload.new.id,
+                content: payload.new.content,
+                media_urls: payload.new.media_urls || [],
+                media_type: payload.new.media_type || 'none',
+                author_id: payload.new.author_id,
+                community_id: payload.new.community_id || null,
+                likes_count: payload.new.likes_count || 0,
+                comments_count: payload.new.comments_count || 0,
+                created_at: payload.new.created_at,
+                updated_at: payload.new.updated_at,
+                isLiked: false,
+                comments: [],
+                author: undefined, // Fetch author separately if needed
+                community: undefined, // Fetch community separately if needed
+              };
+              return [newPost, ...prevPosts];
+            } else if (payload.eventType === 'UPDATE') {
+              return prevPosts.map(post =>
+                post.id === payload.new.id ? { ...post, ...payload.new } : post
+              );
+            } else if (payload.eventType === 'DELETE') {
+              return prevPosts.filter(post => post.id !== payload.old.id);
+            }
+            return prevPosts;
+          });
+        }
+      )
       .subscribe();
 
     const likesChannel = supabase
       .channel('likes_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () => fetchPosts())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'likes' }, () =>
+        fetchPosts()
+      )
       .subscribe();
 
     const commentsChannel = supabase
       .channel('comments_changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, async (payload: RealtimePostgresChangesPayload<any>) => {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, username, avatar_url')
-          .eq('id', payload.new.user_id)
-          .single();
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'comments' },
+        async (payload: RealtimePostgresChangesPayload<any>) => {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('full_name, username, avatar_url')
+            .eq('id', payload.new.user_id)
+            .single();
 
-        const newComment: Comment = {
-          id: payload.new.id,
-          content: payload.new.content,
-          user_id: payload.new.user_id,
-          created_at: payload.new.created_at,
-          author: {
-            full_name: profile?.full_name || null,
-            username: profile?.username || null,
-            avatar_url: profile?.avatar_url || null,
-          },
-        };
+          if (profileError) {
+            console.error('Error fetching profile for comment:', profileError);
+            return;
+          }
 
-        setPosts(prevPosts =>
-          prevPosts.map(post =>
-            post.id === payload.new.post_id
-              ? { ...post, comments: [...post.comments, newComment] }
-              : post
-          )
-        );
-      })
+          const newComment: Comment = {
+            id: payload.new.id,
+            content: payload.new.content,
+            user_id: payload.new.user_id,
+            created_at: payload.new.created_at,
+            author: {
+              full_name: profile?.full_name || null,
+              username: profile?.username || null,
+              avatar_url: profile?.avatar_url || null,
+            },
+          };
+
+          setPosts(prevPosts =>
+            prevPosts.map(post =>
+              post.id === payload.new.post_id
+                ? { ...post, comments: [...post.comments, newComment] }
+                : post
+            )
+          );
+        }
+      )
       .subscribe();
 
     return () => {
