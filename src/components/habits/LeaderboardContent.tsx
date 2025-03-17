@@ -11,7 +11,7 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
 
   useEffect(() => {
     fetchLeaderboard();
-  }, [communityId]);
+  }, []);
 
   const fetchLeaderboard = async () => {
     try {
@@ -47,12 +47,10 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
         };
       });
 
-      // Fetch points for all members in one query
+      // Fetch points for all members in one query (global points)
       const { data: pointsData, error: pointsError } = await supabase
         .from('user_points')
-        .select('user_id, points')
-        .eq('community_id', communityId)
-        .in('user_id', memberIds);
+        .select('user_id, points');
 
       if (pointsError) throw pointsError;
       console.log('Points data:', pointsData);

@@ -1,14 +1,17 @@
 // src/components/habits/HabitsContent.tsx
 import React, { useState, useEffect } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View, Alert } from 'react-native';
-import { Text, Checkbox, TextInput } from 'react-native-paper';
+import { ScrollView, StyleSheet, TouchableOpacity, View, Alert, Modal, TextInput as RNTextInput } from 'react-native';
+import { Text, TextInput } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
+import Icon from 'react-native-vector-icons/MaterialIcons'; // For checkmark, avatar, and close button
 
 const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> = ({ communityId, onAddHabit }) => {
   const { supabase, user } = useAuth();
   const [habits, setHabits] = useState<any[]>([]);
   const [editingHabitId, setEditingHabitId] = useState<string | null>(null);
   const [newHabitName, setNewHabitName] = useState('');
+  const [modalVisible, setModalVisible] = useState(false); // State to manage modal visibility
+  const [newHabitInput, setNewHabitInput] = useState(''); // State to manage new habit input
 
   console.log('HabitsContent communityId:', communityId);
 
@@ -17,17 +20,22 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
   }, []);
 
   if (!user) {
-    return <Text>Please log in to view habits.</Text>;
+    return <Text style={styles.text}>Please log in to view habits.</Text>;
   }
 
   const fetchHabits = async () => {
+    console.log('Fetching habits for user:', user?.id);
     const { data, error } = await supabase
       .from('habits')
       .select('*')
       .eq('user_id', user?.id)
       .order('created_at', { ascending: false });
-    if (error) console.error('Error fetching habits:', error);
-    else setHabits(data || []);
+    if (error) {
+      console.error('Error fetching habits:', error);
+      return;
+    }
+    console.log('Fetched habits:', data);
+    setHabits(data || []);
   };
 
   const updateHabit = async (habitId: string, newName: string) => {
@@ -44,75 +52,87 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
   };
 
   const toggleDay = async (habitId: string, date: string, currentStatus: boolean) => {
+    console.log('Toggling day for habitId:', habitId, 'date:', date, 'currentStatus:', currentStatus);
     const habit = habits.find(h => h.id === habitId);
-    if (!habit) return;
+    if (!habit) {
+      console.error('Habit not found for id:', habitId);
+      return;
+    }
 
-    const updatedDays = habit.days.map((d: any) =>
-      d.date === date ? { ...d, completed: !currentStatus } : d
-    );
-    const { error } = await supabase
+    if (currentStatus) {
+      console.log('Task already completed, unchecking not allowed');
+      return;
+    }
+
+    const currentDays = Array.isArray(habit.days) ? habit.days : [];
+    const dayIndex = currentDays.findIndex((d: any) => d.date === date);
+    let updatedDays;
+    if (dayIndex > -1) {
+      updatedDays = [...currentDays];
+      updatedDays[dayIndex] = { ...currentDays[dayIndex], completed: true };
+    } else {
+      updatedDays = [...currentDays, { date, completed: true }];
+    }
+    console.log('Updated days before update:', updatedDays);
+    const { error, data } = await supabase
       .from('habits')
       .update({ days: updatedDays })
       .eq('id', habitId)
-      .eq('user_id', user.id);
+      .eq('user_id', user.id)
+      .select();
     if (error) {
+      console.error('Error updating habit:', error);
       Alert.alert('Error', 'Failed to update habit');
     } else {
+      console.log('Habit updated successfully, new data:', data);
       fetchHabits();
       if (!currentStatus) {
-        console.log('toggleDay - Adding points for user:', user.id, 'communityId:', communityId);
-        if (!communityId || !user?.id) {
-          Alert.alert('Error', 'Missing community or user ID');
+        console.log('Adding points for user:', user.id);
+        if (!user?.id) {
+          Alert.alert('Error', 'Missing user ID');
           return;
         }
         try {
-          // Call the increment_points RPC
           const { error: pointsError } = await supabase.rpc('increment_points', {
-            p_community_id: communityId,
             p_points: 30,
             p_user_id: user.id,
           });
           if (pointsError) {
-            console.error('RPC increment_points failed:', pointsError);
-            Alert.alert('Error', 'Failed to add points via RPC');
-            // Fallback: Direct table update
+            console.warn('RPC increment_points failed, falling back:', pointsError.message);
             const { data: existingPoints, error: fetchError } = await supabase
               .from('user_points')
               .select('points')
-              .eq('user_id', user.id)
-              .eq('community_id', communityId);
+              .eq('user_id', user.id);
 
             console.log('Existing points fetch result:', existingPoints, fetchError);
             if (fetchError) {
               console.error('Error fetching existing points:', fetchError);
-              // Insert new record if none exists
               const { error: insertError } = await supabase
                 .from('user_points')
-                .insert({ user_id: user.id, community_id: communityId, points: 30 });
+                .insert({ user_id: user.id, points: 30 });
               if (insertError) {
                 console.error('Insert failed:', insertError);
                 Alert.alert('Error', 'Failed to insert points');
               }
             } else if (existingPoints.length === 0) {
-              // No record exists, insert new
               const { error: insertError } = await supabase
                 .from('user_points')
-                .insert({ user_id: user.id, community_id: communityId, points: 30 });
+                .insert({ user_id: user.id, points: 30 });
               if (insertError) {
                 console.error('Insert failed:', insertError);
                 Alert.alert('Error', 'Failed to insert points');
               }
             } else {
-              // Update existing record
               const newPoints = (existingPoints[0]?.points || 0) + 30;
               const { error: updateError } = await supabase
                 .from('user_points')
                 .update({ points: newPoints, updated_at: new Date().toISOString() })
-                .eq('user_id', user.id)
-                .eq('community_id', communityId);
+                .eq('user_id', user.id);
               if (updateError) {
                 console.error('Update failed:', updateError);
                 Alert.alert('Error', 'Failed to update points');
+              } else {
+                console.log('Points updated via fallback to:', newPoints);
               }
             }
           } else {
@@ -128,157 +148,273 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
 
   const getLast7Days = () => {
     const dates = [];
+    const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
+      const dayOfWeek = daysOfWeek[d.getDay()];
       dates.push({
         date: d.toISOString().split('T')[0],
-        display: `${d.getDate()}/${d.getMonth() + 1}`, // Day/Month format
+        display: `${d.getDate()}`,
+        dayOfWeek: dayOfWeek,
       });
     }
     return dates;
   };
 
-  const today = new Date().toISOString().split('T')[0]; // e.g., "2025-03-15"
+  const today = new Date().toISOString().split('T')[0];
 
-  const calculateCompletion = (days: any[]) => {
-    const totalDays = days.length;
-    const completedDays = days.filter(d => d.completed).length;
-    const percentage = totalDays > 0 ? (completedDays / totalDays) * 100 : 0;
-    return { completedDays, totalDays, percentage: percentage.toFixed(0) };
+  const handleAddHabit = async () => {
+    if (!newHabitInput.trim()) {
+      Alert.alert('Error', 'Please enter a habit name.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('habits')
+      .insert({
+        user_id: user?.id,
+        name: newHabitInput,
+        days: [],
+      });
+
+    if (error) {
+      console.error('Error adding habit:', error);
+      Alert.alert('Error', 'Failed to add habit');
+    } else {
+      setModalVisible(false);
+      setNewHabitInput('');
+      fetchHabits();
+      onAddHabit(); // Call the prop function if needed
+    }
   };
 
   return (
-    <ScrollView style={styles.content}>
-      <Text variant="headlineSmall" style={styles.header}>Your Habits:</Text>
-      {habits.map((habit) => {
-        const { completedDays, totalDays, percentage } = calculateCompletion(habit.days);
-        return (
-          <View key={habit.id} style={styles.habitContainer}>
-            <View style={styles.habitHeader}>
-              <View style={styles.habitTitleRow}>
-                <Text style={styles.completionText}>
-                  {completedDays}/{totalDays} {percentage}%
-                </Text>
-                {editingHabitId === habit.id ? (
-                  <TextInput
-                    value={newHabitName}
-                    onChangeText={setNewHabitName}
-                    onBlur={() => updateHabit(habit.id, newHabitName)}
-                    autoFocus
-                    style={styles.editInput}
-                  />
-                ) : (
-                  <TouchableOpacity onPress={() => {
-                    setEditingHabitId(habit.id);
-                    setNewHabitName(habit.name);
-                  }}>
-                    <Text style={styles.habitName}>{habit.name}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              <View style={styles.iconPlaceholder} />
-            </View>
-            <View style={styles.daysContainer}>
-              {getLast7Days().map(({ date, display }) => {
-                const dayData = habit.days.find((d: any) => d.date === date);
-                const isToday = date === today;
-                const isFuture = new Date(date) > new Date(today);
-                return (
-                  <View key={date} style={styles.dayItem}>
-                    <Text style={[styles.dayText, isToday && styles.todayText]}>
-                      {display}
-                    </Text>
-                    <Checkbox
-                      status={dayData?.completed ? 'checked' : 'unchecked'}
-                      onPress={() => toggleDay(habit.id, date, dayData?.completed || false)}
-                      disabled={isFuture || !isToday} // Disable all dates except today
-                      color={isToday ? '#007AFF' : undefined}
+    <View style={styles.container}>
+      <ScrollView style={styles.content}>
+        <Text style={styles.header}>Your Habits:</Text>
+        {habits.map((habit) => {
+          return (
+            <View key={`${habit.id}-${habit.days.map((d: any) => d.date).join('-')}`} style={styles.habitContainer}>
+              <View style={styles.habitHeader}>
+                <View style={styles.habitTitleRow}>
+                  {editingHabitId === habit.id ? (
+                    <TextInput
+                      value={newHabitName}
+                      onChangeText={setNewHabitName}
+                      onBlur={() => updateHabit(habit.id, newHabitName)}
+                      autoFocus
+                      style={styles.editInput}
                     />
-                  </View>
-                );
-              })}
+                  ) : (
+                    <TouchableOpacity onPress={() => {
+                      setEditingHabitId(habit.id);
+                      setNewHabitName(habit.name);
+                    }}>
+                      <Text style={styles.habitName}>{habit.name}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Icon
+                  name="account-circle"
+                  size={24}
+                  color="#757575"
+                  style={styles.avatarIcon}
+                />
+              </View>
+              <View style={styles.frequencyContainer}>
+                <Text style={styles.frequencyText}>everyday</Text>
+              </View>
+              <View style={styles.daysContainer}>
+                {getLast7Days().map(({ date, display, dayOfWeek }) => {
+                  const dayData = habit.days.find((d: any) => d.date === date);
+                  const isToday = date === today;
+                  const isFuture = new Date(date) > new Date(today);
+                  const isCompleted = dayData?.completed || false;
+                  console.log('Rendering day for date:', date, 'dayData:', dayData);
+                  return (
+                    <View key={date} style={styles.dayWrapper}>
+                      <Text style={styles.dayOfWeekText}>{dayOfWeek}</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.dayButton,
+                          isCompleted && styles.dayButtonCompleted,
+                          isToday && styles.dayButtonToday,
+                          (isFuture || !isToday) && styles.dayButtonDisabled,
+                        ]}
+                        onPress={() => !isFuture && isToday && toggleDay(habit.id, date, isCompleted)}
+                        disabled={isFuture || !isToday || isCompleted}
+                      >
+                        {isCompleted ? (
+                          <Icon name="check" size={16} color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.dayText}>{display}</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        );
-      })}
+          );
+        })}
+      </ScrollView>
       {habits.length < 7 && (
-        <TouchableOpacity style={styles.addButton} onPress={onAddHabit}>
+        <TouchableOpacity style={styles.addButton} onPress={() => setModalVisible(true)}>
           <Text style={styles.addButtonText}>+</Text>
         </TouchableOpacity>
       )}
-    </ScrollView>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Icon name="close" size={24} color="#757575" />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Add New Habit</Text>
+            <TextInput
+              placeholder="habit Name"
+              value={newHabitInput}
+              onChangeText={setNewHabitInput}
+              style={styles.modalInput}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={styles.submitButton}
+              onPress={handleAddHabit}
+            >
+              <Text style={styles.submitButtonText}>Add Habit</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  content: {
+  container: {
     flex: 1,
+  },
+  content: {
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
+  },
+  text: {
+    fontSize: 10,
+    color: '#000',
   },
   header: {
-    color: '#333',
-    marginBottom: 15,
+    color: '#333333',
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 20,
   },
   habitContainer: {
-    backgroundColor: '#f9f9f9',
-    borderRadius: 10,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 15,
     padding: 15,
-    marginBottom: 15,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#E0E0E0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   habitHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 5,
   },
   habitTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  completionText: {
-    color: '#00C4B4',
-    fontSize: 14,
-    marginRight: 10,
-  },
   habitName: {
-    color: '#333',
+    color: '#333333',
     fontSize: 18,
     fontWeight: '500',
   },
   editInput: {
-    color: '#333',
+    color: '#333333',
     fontSize: 18,
     width: 150,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#e0e0e0',
+    borderColor: '#E0E0E0',
+    paddingHorizontal: 10,
   },
-  iconPlaceholder: {
+  avatarIcon: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: '#E0E0E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  frequencyContainer: {
+    backgroundColor: '#E0E0E0',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 10,
+  },
+  frequencyText: {
+    color: '#333333',
+    fontSize: 12,
+    fontWeight: '500',
   },
   daysContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    paddingVertical: 5,
   },
-  dayItem: {
+  dayWrapper: {
     alignItems: 'center',
   },
-  dayText: {
-    color: '#666',
-    fontSize: 14,
+  dayOfWeekText: {
+    color: '#666666',
+    fontSize: 12,
+    fontWeight: '400',
     marginBottom: 5,
   },
-  todayText: {
-    color: '#007AFF',
-    fontWeight: 'bold',
+  dayButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#B0B0B0',
+  },
+  dayButtonCompleted: {
+    backgroundColor: '#4CAF50',
+    borderColor: '#4CAF50',
+  },
+  dayButtonToday: {
+    borderColor: '#007AFF',
+  },
+  dayButtonDisabled: {
+    backgroundColor: '#E0E0E0',
+    opacity: 0.5,
+  },
+  dayText: {
+    color: '#333333',
+    fontSize: 14,
+    fontWeight: '500',
   },
   addButton: {
     position: 'absolute',
@@ -290,12 +426,70 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
     elevation: 5,
   },
   addButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 24,
     fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)', // Semi-transparent background
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 15,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 20,
+  },
+  modalInput: {
+    width: '100%',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 16,
+    color: '#333333',
+    marginBottom: 20,
+  },
+  submitButton: {
+    backgroundColor: '#26C6DA', // Teal color from the screenshot
+    borderRadius: 25,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
