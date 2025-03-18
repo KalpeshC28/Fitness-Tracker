@@ -15,8 +15,6 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
 
   const fetchLeaderboard = async () => {
     try {
-      console.log('Fetching leaderboard for communityId:', communityId);
-      // Fetch active members
       const { data: membersData, error: membersError } = await supabase
         .from('community_members')
         .select('user_id, role, joined_at')
@@ -24,9 +22,7 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
         .eq('status', 'active');
 
       if (membersError) throw membersError;
-      console.log('Members data:', membersData);
 
-      // Fetch profiles for members in a separate query
       const memberIds = membersData?.map(m => m.user_id) || [];
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
@@ -34,9 +30,7 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
         .in('id', memberIds);
 
       if (profilesError) throw profilesError;
-      console.log('Profiles data:', profilesData);
 
-      // Combine members with their profiles
       const membersWithProfiles = membersData.map(member => {
         const profile = profilesData.find(p => p.id === member.user_id);
         return {
@@ -47,15 +41,12 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
         };
       });
 
-      // Fetch points for all members in one query (global points)
       const { data: pointsData, error: pointsError } = await supabase
         .from('user_points')
         .select('user_id, points');
 
       if (pointsError) throw pointsError;
-      console.log('Points data:', pointsData);
 
-      // Combine points with members
       const leaderboardData = membersWithProfiles.map(member => {
         const pointsEntry = pointsData?.find(p => p.user_id === member.user_id);
         return {
@@ -64,13 +55,32 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
         };
       });
 
-      // Sort by points in descending order
       leaderboardData.sort((a, b) => b.points - a.points);
-      console.log('Final leaderboard data:', leaderboardData);
       setLeaderboard(leaderboardData);
     } catch (error) {
-      console.error('Error fetching leaderboard:', error);
+      console.error('Error fetching leaderboard:', error.message);
     }
+  };
+
+  const getRankLabel = (position: number) => {
+    switch (position) {
+      case 0:
+        return 'Gold';
+      case 1:
+        return 'Silver';
+      case 2:
+        return 'Bronze';
+      default:
+        return 'Regular';
+    }
+  };
+
+  const formatName = (fullName: string) => {
+    const nameParts = fullName.trim().split(' ');
+    if (nameParts.length >= 2) {
+      return `${nameParts[0]} ${nameParts[1].charAt(0)}.`;
+    }
+    return fullName; // Return as is if only one name or no space
   };
 
   const renderItem = ({ item, index }: { item: any; index: number }) => (
@@ -78,59 +88,103 @@ const LeaderboardContent: React.FC<{ communityId: string }> = ({ communityId }) 
       style={styles.item}
       onPress={() => router.push(`/profile/${item.user_id}`)}
     >
-      <Avatar.Image
-        size={40}
-        source={{ uri: item.avatar_url || undefined }}
-      />
+      <Text style={styles.position}>#{index + 1}</Text>
       <View style={styles.memberInfo}>
-        <Text variant="bodyMedium" style={styles.memberName}>
-          {item.full_name}
-        </Text>
-        <Text variant="bodySmall" style={styles.memberRole}>
-          {item.role.charAt(0).toUpperCase() + item.role.slice(1)}
-        </Text>
+        <Avatar.Image
+          size={40}
+          source={{ uri: item.avatar_url || undefined }}
+          style={styles.avatar}
+        />
+        <Text style={styles.name}>{formatName(item.full_name)}</Text>
       </View>
-      <Text style={styles.points}>{item.points} points</Text>
+      <Text style={styles.aura}>{item.points} Aura</Text>
+      <Text style={styles.rank}>{getRankLabel(index)}</Text>
     </TouchableOpacity>
   );
 
   return (
-    <View style={styles.content}>
-      <Text variant="headlineSmall">Leaderboard</Text>
+    <View style={styles.container}>
+      {/* Leaderboard Title */}
+      <Text style={styles.header}>Leaderboard</Text>
+
+      {/* Leaderboard List */}
       <FlatList
         data={leaderboard}
         renderItem={renderItem}
         keyExtractor={(item) => item.user_id}
-        ListEmptyComponent={<Text variant="bodyLarge">No members yet</Text>}
+        ListEmptyComponent={<Text style={styles.emptyText}>No members yet</Text>}
+        contentContainerStyle={styles.listContent}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  content: { flex: 1, padding: 20 },
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  header: {
+    color: '#333333',
+    fontSize: 24,
+    fontWeight: '600',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop:20,
+  },
+  listContent: {
+    paddingHorizontal: 20,
+  },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 8,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+    backgroundColor: '#F5F5F5',
     borderRadius: 8,
+    marginBottom: 10,
+  },
+  position: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333333',
+    width: 40,
+    textAlign: 'center',
   },
   memberInfo: {
-    marginLeft: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
+    marginLeft: 10,
   },
-  memberName: {
+  avatar: {
+    marginRight: 10,
+  },
+  name: {
+    fontSize: 16,
     fontWeight: '500',
+    color: '#333333',
   },
-  memberRole: {
-    color: '#666',
-  },
-  points: {
+  aura: {
     fontSize: 16,
     fontWeight: 'bold',
     color: '#00C4B4',
+    width: 100,
+    textAlign: 'center',
+  },
+  rank: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#757575',
+    width: 80,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666666',
+    textAlign: 'center',
+    paddingVertical: 20,
   },
 });
 

@@ -13,28 +13,29 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
   const [modalVisible, setModalVisible] = useState(false); // State to manage modal visibility
   const [newHabitInput, setNewHabitInput] = useState(''); // State to manage new habit input
 
-  console.log('HabitsContent communityId:', communityId);
+  // console.log('HabitsContent communityId:', communityId); // Removed excessive log
 
   useEffect(() => {
     fetchHabits();
-  }, []);
+    // Check for missed tasks every minute to approximate midnight transition
+    const interval = setInterval(checkMissedTasks, 60000); // Check every minute
+    return () => clearInterval(interval); // Cleanup interval on unmount
+  }, [habits]);
 
   if (!user) {
     return <Text style={styles.text}>Please log in to view habits.</Text>;
   }
 
   const fetchHabits = async () => {
-    console.log('Fetching habits for user:', user?.id);
     const { data, error } = await supabase
       .from('habits')
       .select('*')
       .eq('user_id', user?.id)
       .order('created_at', { ascending: false });
     if (error) {
-      console.error('Error fetching habits:', error);
+      console.error('Error fetching habits:', error.message);
       return;
     }
-    console.log('Fetched habits:', data);
     setHabits(data || []);
   };
 
@@ -52,7 +53,6 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
   };
 
   const toggleDay = async (habitId: string, date: string, currentStatus: boolean) => {
-    console.log('Toggling day for habitId:', habitId, 'date:', date, 'currentStatus:', currentStatus);
     const habit = habits.find(h => h.id === habitId);
     if (!habit) {
       console.error('Habit not found for id:', habitId);
@@ -73,7 +73,6 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
     } else {
       updatedDays = [...currentDays, { date, completed: true }];
     }
-    console.log('Updated days before update:', updatedDays);
     const { error, data } = await supabase
       .from('habits')
       .update({ days: updatedDays })
@@ -81,20 +80,15 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
       .eq('user_id', user.id)
       .select();
     if (error) {
-      console.error('Error updating habit:', error);
+      console.error('Error updating habit:', error.message);
       Alert.alert('Error', 'Failed to update habit');
     } else {
-      console.log('Habit updated successfully, new data:', data);
       fetchHabits();
       if (!currentStatus) {
-        console.log('Adding points for user:', user.id);
-        if (!user?.id) {
-          Alert.alert('Error', 'Missing user ID');
-          return;
-        }
+        console.log('Adding 50 Aura for user:', user.id);
         try {
           const { error: pointsError } = await supabase.rpc('increment_points', {
-            p_points: 30,
+            p_points: 50,
             p_user_id: user.id,
           });
           if (pointsError) {
@@ -104,42 +98,39 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
               .select('points')
               .eq('user_id', user.id);
 
-            console.log('Existing points fetch result:', existingPoints, fetchError);
             if (fetchError) {
-              console.error('Error fetching existing points:', fetchError);
+              console.error('Error fetching existing points:', fetchError.message);
               const { error: insertError } = await supabase
                 .from('user_points')
-                .insert({ user_id: user.id, points: 30 });
+                .insert({ user_id: user.id, points: 50 });
               if (insertError) {
-                console.error('Insert failed:', insertError);
+                console.error('Insert failed:', insertError.message);
                 Alert.alert('Error', 'Failed to insert points');
               }
             } else if (existingPoints.length === 0) {
               const { error: insertError } = await supabase
                 .from('user_points')
-                .insert({ user_id: user.id, points: 30 });
+                .insert({ user_id: user.id, points: 50 });
               if (insertError) {
-                console.error('Insert failed:', insertError);
+                console.error('Insert failed:', insertError.message);
                 Alert.alert('Error', 'Failed to insert points');
               }
             } else {
-              const newPoints = (existingPoints[0]?.points || 0) + 30;
+              const newPoints = (existingPoints[0]?.points || 0) + 50;
               const { error: updateError } = await supabase
                 .from('user_points')
                 .update({ points: newPoints, updated_at: new Date().toISOString() })
                 .eq('user_id', user.id);
               if (updateError) {
-                console.error('Update failed:', updateError);
+                console.error('Update failed:', updateError.message);
                 Alert.alert('Error', 'Failed to update points');
               } else {
                 console.log('Points updated via fallback to:', newPoints);
               }
             }
-          } else {
-            console.log('Points incremented successfully via RPC');
           }
         } catch (err) {
-          console.error('Unexpected error when adding points:', err);
+          console.error('Unexpected error when adding points:', err.message);
           Alert.alert('Error', 'An unexpected error occurred while adding points');
         }
       }
@@ -179,13 +170,56 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
       });
 
     if (error) {
-      console.error('Error adding habit:', error);
+      console.error('Error adding habit:', error.message);
       Alert.alert('Error', 'Failed to add habit');
     } else {
       setModalVisible(false);
       setNewHabitInput('');
       fetchHabits();
       onAddHabit(); // Call the prop function if needed
+    }
+  };
+
+  const checkMissedTasks = async () => {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+
+    if (now.getHours() === 0 && now.getMinutes() === 0) { // Approximate midnight check
+      console.log('Checking for missed tasks at midnight');
+      for (const habit of habits) {
+        const currentDays = Array.isArray(habit.days) ? habit.days : [];
+        const todayData = currentDays.find((d: any) => d.date === today);
+        if (!todayData?.completed) {
+          console.log(`Missed task for habit: ${habit.name} on ${today}`);
+          const { data: existingPoints, error: fetchError } = await supabase
+            .from('user_points')
+            .select('points')
+            .eq('user_id', user.id);
+
+          if (fetchError) {
+            console.error('Error fetching points:', fetchError.message);
+            continue;
+          }
+
+          const currentPoints = existingPoints.length > 0 ? existingPoints[0].points : 0;
+          const newPoints = Math.max(0, currentPoints - 25); // Deduct 25 Aura, ensure not negative
+
+          if (currentPoints > 0 || newPoints < currentPoints) {
+            const { error: updateError } = await supabase
+              .from('user_points')
+              .update({ points: newPoints, updated_at: new Date().toISOString() })
+              .eq('user_id', user.id);
+            if (updateError) {
+              console.error('Error updating points:', updateError.message);
+              Alert.alert('Error', 'Failed to update points for missed task');
+            } else {
+              console.log('Points updated for missed task to:', newPoints);
+            }
+          }
+        }
+      }
+      fetchHabits(); // Refresh habits to reflect any changes
     }
   };
 
@@ -231,7 +265,7 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
                   const isToday = date === today;
                   const isFuture = new Date(date) > new Date(today);
                   const isCompleted = dayData?.completed || false;
-                  console.log('Rendering day for date:', date, 'dayData:', dayData);
+                  // console.log('Rendering day for date:', date, 'dayData:', dayData); // Removed excessive log
                   return (
                     <View key={date} style={styles.dayWrapper}>
                       <Text style={styles.dayOfWeekText}>{dayOfWeek}</Text>
@@ -362,6 +396,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingLeft:3,
+    paddingTop:3,
   },
   frequencyContainer: {
     backgroundColor: '#E0E0E0',
