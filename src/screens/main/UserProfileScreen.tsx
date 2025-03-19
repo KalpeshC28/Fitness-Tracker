@@ -1,3 +1,4 @@
+// src/screens/main/UserProfileScreen.tsx
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, Avatar, Card, IconButton } from 'react-native-paper';
@@ -13,25 +14,77 @@ interface UserProfile {
   bio: string | null;
   location: string | null;
   interests: string | null;
+  aura_points: number; // Add aura_points to the UserProfile interface
+}
+
+interface CommunityRank {
+  community_id: string;
+  community_name: string;
+  rank: string;
+  position: number;
 }
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams();
   const { supabase } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [communityRanks, setCommunityRanks] = useState<CommunityRank[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const { data, error } = await supabase
+        // Fetch user profile including aura_points
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
-          .select('*')
+          .select('id, full_name, username, avatar_url, bio, location, interests, aura_points')
           .eq('id', id)
           .single();
 
-        if (error) throw error;
-        setProfile(data);
+        if (profileError) throw profileError;
+        setProfile(profileData);
+
+        // Fetch communities the user is a member of
+        const { data: userCommunities, error: membershipError } = await supabase
+          .from('community_members')
+          .select('community_id')
+          .eq('user_id', id)
+          .eq('status', 'active');
+
+        if (membershipError) throw membershipError;
+
+        const communityIds = userCommunities.map(uc => uc.community_id);
+
+        // Fetch community names and user ranks
+        if (communityIds.length > 0) {
+          const { data: communitiesData, error: communitiesError } = await supabase
+            .from('communities')
+            .select('id, name')
+            .in('id', communityIds);
+
+          if (communitiesError) throw communitiesError;
+
+          const { data: ranksData, error: ranksError } = await supabase
+            .from('user_points')
+            .select('community_id, rank, position')
+            .eq('user_id', id)
+            .in('community_id', communityIds);
+
+          if (ranksError) throw ranksError;
+
+          // Combine community names with ranks
+          const ranksWithCommunity = ranksData.map(rank => {
+            const community = communitiesData.find(c => c.id === rank.community_id);
+            return {
+              community_id: rank.community_id,
+              community_name: community?.name || 'Unknown Community',
+              rank: rank.rank,
+              position: rank.position,
+            };
+          });
+
+          setCommunityRanks(ranksWithCommunity);
+        }
       } catch (error) {
         console.error('Error fetching profile:', error);
         alert('Failed to load profile');
@@ -48,9 +101,9 @@ export default function UserProfileScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <IconButton 
-          icon="arrow-left" 
-          onPress={() => router.back()} 
+        <IconButton
+          icon="arrow-left"
+          onPress={() => router.back()}
         />
         <Text variant="titleLarge">{profile.username}</Text>
       </View>
@@ -68,6 +121,36 @@ export default function UserProfileScreen() {
             @{profile.username}
           </Text>
         </View>
+
+        {/* Leaderboard Stats Section */}
+        <Card style={styles.section}>
+          <Card.Content>
+            <Text variant="titleMedium" style={styles.sectionTitle}>Leaderboard Stats</Text>
+            <View style={styles.detail}>
+              <Text variant="bodyMedium" style={styles.label}>Aura Points</Text>
+              <Text variant="bodyMedium">{profile.aura_points || 0} Aura</Text>
+            </View>
+            {communityRanks.length > 0 ? (
+              communityRanks.map((rank, index) => (
+                <View key={rank.community_id}>
+                  <View style={styles.detail}>
+                    <Text variant="bodyMedium" style={styles.label}>
+                      {rank.community_name}
+                    </Text>
+                    <Text variant="bodyMedium">Rank: {rank.rank}</Text>
+                    <Text variant="bodyMedium">Position: #{rank.position}</Text>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <View style={styles.detail}>
+                <Text variant="bodyMedium" style={styles.noRanksText}>
+                  This user hasn’t joined any communities yet.
+                </Text>
+              </View>
+            )}
+          </Card.Content>
+        </Card>
 
         {profile.bio && (
           <Card style={styles.section}>
@@ -142,4 +225,7 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 4,
   },
-}); 
+  noRanksText: {
+    color: '#666',
+  },
+});

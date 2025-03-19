@@ -1,11 +1,13 @@
+// src/screens/main/ProfileScreen.tsx
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
 import { Text, Button, Avatar, Card, Divider, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { ProfileCompletionModal } from '../../components/modals/ProfileCompletionModal';
 
 interface Profile {
+  id: string;
   full_name: string | null;
   username: string | null;
   avatar_url: string | null;
@@ -13,24 +15,76 @@ interface Profile {
   location: string | null;
   interests: string | null;
   is_profile_complete: boolean;
+  aura_points: number; // Add aura_points to the Profile interface
+}
+
+interface CommunityRank {
+  community_id: string;
+  community_name: string;
+  rank: string;
+  position: number;
 }
 
 export default function ProfileScreen() {
   const { signOut, user, supabase } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [communityRanks, setCommunityRanks] = useState<CommunityRank[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async () => {
     try {
-      const { data, error } = await supabase
+      // Fetch user profile including aura_points
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, username, avatar_url, bio, location, interests, is_profile_complete, aura_points')
         .eq('id', user?.id)
         .single();
 
-      if (error) throw error;
-      setProfile(data);
+      if (profileError) throw profileError;
+      setProfile(profileData);
+
+      // Fetch communities the user is a member of
+      const { data: userCommunities, error: membershipError } = await supabase
+        .from('community_members')
+        .select('community_id')
+        .eq('user_id', user?.id)
+        .eq('status', 'active');
+
+      if (membershipError) throw membershipError;
+
+      const communityIds = userCommunities.map(uc => uc.community_id);
+
+      // Fetch community names and user ranks
+      if (communityIds.length > 0) {
+        const { data: communitiesData, error: communitiesError } = await supabase
+          .from('communities')
+          .select('id, name')
+          .in('id', communityIds);
+
+        if (communitiesError) throw communitiesError;
+
+        const { data: ranksData, error: ranksError } = await supabase
+          .from('user_points')
+          .select('community_id, rank, position')
+          .eq('user_id', user?.id)
+          .in('community_id', communityIds);
+
+        if (ranksError) throw ranksError;
+
+        // Combine community names with ranks
+        const ranksWithCommunity = ranksData.map(rank => {
+          const community = communitiesData.find(c => c.id === rank.community_id);
+          return {
+            community_id: rank.community_id,
+            community_name: community?.name || 'Unknown Community',
+            rank: rank.rank,
+            position: rank.position,
+          };
+        });
+
+        setCommunityRanks(ranksWithCommunity);
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
@@ -70,6 +124,46 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* Leaderboard Stats Section */}
+        <Card style={styles.section}>
+          <Card.Content>
+            <Text variant="titleMedium" style={styles.sectionTitle}>Leaderboard Stats</Text>
+            <View style={styles.detailRow}>
+              <Text variant="bodyMedium" style={styles.detailLabel}>Aura Points</Text>
+              <Text variant="bodyMedium" style={styles.detailValue}>
+                {profile?.aura_points || 0} Aura
+              </Text>
+            </View>
+            {communityRanks.length > 0 ? (
+              communityRanks.map((rank, index) => (
+                <View key={rank.community_id}>
+                  <Divider style={styles.divider} />
+                  <View style={styles.detailRow}>
+                    <Text variant="bodyMedium" style={styles.detailLabel}>
+                      {rank.community_name}
+                    </Text>
+                    <View style={styles.rankInfo}>
+                      <Text variant="bodyMedium" style={styles.detailValue}>
+                        Rank: {rank.rank}
+                      </Text>
+                      <Text variant="bodyMedium" style={styles.detailValue}>
+                        Position: #{rank.position}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <>
+                <Divider style={styles.divider} />
+                <Text variant="bodyMedium" style={styles.noRanksText}>
+                  Join a community to see your ranks!
+                </Text>
+              </>
+            )}
+          </Card.Content>
+        </Card>
+
         {/* Bio Section */}
         <Card style={styles.section}>
           <Card.Content>
@@ -84,16 +178,13 @@ export default function ProfileScreen() {
         <Card style={styles.section}>
           <Card.Content>
             <Text variant="titleMedium" style={styles.sectionTitle}>Details</Text>
-            
             <View style={styles.detailRow}>
               <Text variant="bodyMedium" style={styles.detailLabel}>Location</Text>
               <Text variant="bodyMedium" style={styles.detailValue}>
                 {profile?.location || 'Not specified'}
               </Text>
             </View>
-
             <Divider style={styles.divider} />
-
             <View style={styles.detailRow}>
               <Text variant="bodyMedium" style={styles.detailLabel}>Interests</Text>
               <Text variant="bodyMedium" style={styles.detailValue}>
@@ -105,8 +196,8 @@ export default function ProfileScreen() {
 
         {/* Account Actions */}
         <View style={styles.actions}>
-          <Button 
-            mode="contained" 
+          <Button
+            mode="contained"
             onPress={signOut}
             style={styles.signOutButton}
             buttonColor="#FF3B30"
@@ -186,8 +277,16 @@ const styles = StyleSheet.create({
     flex: 2,
     textAlign: 'right',
   },
+  rankInfo: {
+    flex: 2,
+    alignItems: 'flex-end',
+  },
   divider: {
     marginVertical: 8,
+  },
+  noRanksText: {
+    color: '#666',
+    textAlign: 'center',
   },
   actions: {
     padding: 16,
@@ -195,4 +294,4 @@ const styles = StyleSheet.create({
   signOutButton: {
     marginTop: 8,
   },
-}); 
+});
