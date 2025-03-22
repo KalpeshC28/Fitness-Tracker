@@ -13,8 +13,6 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
   const [modalVisible, setModalVisible] = useState(false); // State to manage modal visibility
   const [newHabitInput, setNewHabitInput] = useState(''); // State to manage new habit input
 
-  // console.log('HabitsContent communityId:', communityId); // Removed excessive log
-
   useEffect(() => {
     fetchHabits();
     // Check for missed tasks every minute to approximate midnight transition
@@ -52,6 +50,41 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
     }
   };
 
+  const incrementAuraPoints = async (userId: string, pointsToAdd: number) => {
+    try {
+      // Fetch current aura_points from profiles
+      const { data: profileData, error: fetchError } = await supabase
+        .from('profiles')
+        .select('aura_points')
+        .eq('id', userId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching aura_points:', fetchError.message);
+        throw fetchError;
+      }
+
+      const currentPoints = profileData?.aura_points || 0;
+      const newPoints = currentPoints + pointsToAdd;
+
+      // Update aura_points in profiles
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ aura_points: newPoints, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+
+      if (updateError) {
+        console.error('Error updating aura_points:', updateError.message);
+        throw updateError;
+      }
+
+      console.log(`Successfully updated aura_points for user ${userId} to ${newPoints}`);
+    } catch (error) {
+      console.error('Unexpected error when updating aura_points:', error.message);
+      Alert.alert('Error', 'Failed to update aura points');
+    }
+  };
+
   const toggleDay = async (habitId: string, date: string, currentStatus: boolean) => {
     const habit = habits.find(h => h.id === habitId);
     if (!habit) {
@@ -86,53 +119,7 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
       fetchHabits();
       if (!currentStatus) {
         console.log('Adding 50 Aura for user:', user.id);
-        try {
-          const { error: pointsError } = await supabase.rpc('increment_points', {
-            p_points: 50,
-            p_user_id: user.id,
-          });
-          if (pointsError) {
-            console.warn('RPC increment_points failed, falling back:', pointsError.message);
-            const { data: existingPoints, error: fetchError } = await supabase
-              .from('user_points')
-              .select('points')
-              .eq('user_id', user.id);
-
-            if (fetchError) {
-              console.error('Error fetching existing points:', fetchError.message);
-              const { error: insertError } = await supabase
-                .from('user_points')
-                .insert({ user_id: user.id, points: 50 });
-              if (insertError) {
-                console.error('Insert failed:', insertError.message);
-                Alert.alert('Error', 'Failed to insert points');
-              }
-            } else if (existingPoints.length === 0) {
-              const { error: insertError } = await supabase
-                .from('user_points')
-                .insert({ user_id: user.id, points: 50 });
-              if (insertError) {
-                console.error('Insert failed:', insertError.message);
-                Alert.alert('Error', 'Failed to insert points');
-              }
-            } else {
-              const newPoints = (existingPoints[0]?.points || 0) + 50;
-              const { error: updateError } = await supabase
-                .from('user_points')
-                .update({ points: newPoints, updated_at: new Date().toISOString() })
-                .eq('user_id', user.id);
-              if (updateError) {
-                console.error('Update failed:', updateError.message);
-                Alert.alert('Error', 'Failed to update points');
-              } else {
-                console.log('Points updated via fallback to:', newPoints);
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Unexpected error when adding points:', err.message);
-          Alert.alert('Error', 'An unexpected error occurred while adding points');
-        }
+        await incrementAuraPoints(user.id, 50);
       }
     }
   };
@@ -192,30 +179,38 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
         const todayData = currentDays.find((d: any) => d.date === today);
         if (!todayData?.completed) {
           console.log(`Missed task for habit: ${habit.name} on ${today}`);
-          const { data: existingPoints, error: fetchError } = await supabase
-            .from('user_points')
-            .select('points')
-            .eq('user_id', user.id);
+          try {
+            // Fetch current aura_points from profiles
+            const { data: profileData, error: fetchError } = await supabase
+              .from('profiles')
+              .select('aura_points')
+              .eq('id', user.id)
+              .single();
 
-          if (fetchError) {
-            console.error('Error fetching points:', fetchError.message);
-            continue;
-          }
-
-          const currentPoints = existingPoints.length > 0 ? existingPoints[0].points : 0;
-          const newPoints = Math.max(0, currentPoints - 25); // Deduct 25 Aura, ensure not negative
-
-          if (currentPoints > 0 || newPoints < currentPoints) {
-            const { error: updateError } = await supabase
-              .from('user_points')
-              .update({ points: newPoints, updated_at: new Date().toISOString() })
-              .eq('user_id', user.id);
-            if (updateError) {
-              console.error('Error updating points:', updateError.message);
-              Alert.alert('Error', 'Failed to update points for missed task');
-            } else {
-              console.log('Points updated for missed task to:', newPoints);
+            if (fetchError) {
+              console.error('Error fetching aura_points:', fetchError.message);
+              continue;
             }
+
+            const currentPoints = profileData?.aura_points || 0;
+            const newPoints = Math.max(0, currentPoints - 25); // Deduct 25 Aura, ensure not negative
+
+            if (currentPoints > 0 || newPoints < currentPoints) {
+              const { error: updateError } = await supabase
+                .from('profiles')
+                .update({ aura_points: newPoints, updated_at: new Date().toISOString() })
+                .eq('id', user.id);
+
+              if (updateError) {
+                console.error('Error updating aura_points:', updateError.message);
+                Alert.alert('Error', 'Failed to update aura points for missed task');
+              } else {
+                console.log('Aura points updated for missed task to:', newPoints);
+              }
+            }
+          } catch (error) {
+            console.error('Unexpected error when deducting aura_points:', error.message);
+            Alert.alert('Error', 'An unexpected error occurred while deducting aura points');
           }
         }
       }
@@ -265,7 +260,6 @@ const HabitsContent: React.FC<{ communityId: string; onAddHabit: () => void }> =
                   const isToday = date === today;
                   const isFuture = new Date(date) > new Date(today);
                   const isCompleted = dayData?.completed || false;
-                  // console.log('Rendering day for date:', date, 'dayData:', dayData); // Removed excessive log
                   return (
                     <View key={date} style={styles.dayWrapper}>
                       <Text style={styles.dayOfWeekText}>{dayOfWeek}</Text>
@@ -396,8 +390,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#E0E0E0',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingLeft:3,
-    paddingTop:3,
+    paddingLeft: 3,
+    paddingTop: 3,
   },
   frequencyContainer: {
     backgroundColor: '#E0E0E0',

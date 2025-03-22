@@ -1,6 +1,7 @@
+// src/screens/main/DiscoverCommunities.tsx
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
-import { Text, Searchbar, Card, Button, Avatar, IconButton, Chip } from 'react-native-paper';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
+import { Text, Searchbar, Button, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { router } from 'expo-router';
@@ -16,7 +17,7 @@ export default function DiscoverCommunitiesScreen() {
 
   const fetchCommunities = async () => {
     try {
-      // First get all public communities
+      // Fetch all public communities
       const { data: communitiesData, error: communitiesError } = await supabase
         .from('communities')
         .select(`
@@ -70,7 +71,7 @@ export default function DiscoverCommunitiesScreen() {
       // Combine all data
       const communitiesWithCounts = communitiesData.map(community => ({
         ...community,
-        member_count: memberCounts[community.id] || 0
+        member_count: memberCounts[community.id] || 0,
       }));
 
       setCommunities(communitiesWithCounts);
@@ -87,7 +88,7 @@ export default function DiscoverCommunitiesScreen() {
     fetchCommunities();
   }, [searchQuery]);
 
-  // Add this effect to listen for member count changes
+  // Listen for member count changes
   useEffect(() => {
     const channel = supabase
       .channel('member_count_changes')
@@ -96,7 +97,7 @@ export default function DiscoverCommunitiesScreen() {
         {
           event: '*',
           schema: 'public',
-          table: 'community_members'
+          table: 'community_members',
         },
         () => {
           fetchCommunities(); // Refresh when members change
@@ -124,7 +125,7 @@ export default function DiscoverCommunitiesScreen() {
 
       // Update local state
       setJoinedCommunities(prev => new Set([...prev, communityId]));
-      
+
       // Update member count in the communities list
       setCommunities(prev =>
         prev.map(c =>
@@ -143,83 +144,62 @@ export default function DiscoverCommunitiesScreen() {
     const isJoined = joinedCommunities.has(item.id);
 
     return (
-      <Card style={styles.card}>
-        {item.cover_image && (
-          <Card.Cover source={{ uri: item.cover_image }} style={styles.coverImage} />
-        )}
-        <Card.Title
-          title={item.name}
-          subtitle={`${item.member_count} members`}
-          left={props => (
-            item.cover_image ? (
-              <Avatar.Image
-                {...props}
-                size={40}
-                source={{ uri: item.cover_image }}
-              />
-            ) : (
-              <Avatar.Icon
-                {...props}
-                size={40}
-                icon="account-group"
-                color="#FFFFFF"
-                style={{ backgroundColor: '#007AFF' }}
-              />
-            )
-          )}
-        />
-        <Card.Content>
-          <Text variant="bodyMedium" style={styles.description}>
-            {item.description || 'No description'}
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => router.push(`/community/${item.id}`)}
+      >
+        <View style={styles.cardContent}>
+          <Text style={styles.communityName}>{item.name}</Text>
+          <Text style={styles.communityDetails}>
+            {item.description ? item.description.slice(0, 50) + '...' : '-details'}
           </Text>
-          <View style={styles.creatorInfo}>
-            <Text variant="bodySmall">
-              Created by {item.creator?.full_name || item.creator?.username}
-            </Text>
-          </View>
-        </Card.Content>
-        <Card.Actions>
-          {isJoined ? (
-            <Button
-              mode="outlined"
-              onPress={() => router.push(`/community/${item.id}`)}
-            >
-              View Community
-            </Button>
-          ) : (
-            <Button
-              mode="contained"
-              onPress={() => handleJoin(item.id)}
-            >
-              Join Community
-            </Button>
-          )}
-        </Card.Actions>
-      </Card>
+          <Button
+            mode={isJoined ? 'outlined' : 'contained'}
+            onPress={() => {
+              if (!isJoined) {
+                handleJoin(item.id);
+              } else {
+                router.push(`/community/${item.id}`);
+              }
+            }}
+            style={isJoined ? styles.joinedButton : styles.joinButton}
+            labelStyle={isJoined ? styles.joinedButtonLabel : styles.joinButtonLabel}
+          >
+            {isJoined ? 'Joined' : 'Join'}
+          </Button>
+        </View>
+      </TouchableOpacity>
     );
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <IconButton 
-          icon="arrow-left" 
-          onPress={() => router.back()} 
+        <IconButton
+          icon="arrow-left"
+          onPress={() => router.back()}
+          iconColor="#333333"
         />
-        <Text variant="headlineSmall">Discover Communities</Text>
+        <Text variant="headlineSmall" style={styles.headerTitle}>
+          Discover Communities
+        </Text>
       </View>
 
       <Searchbar
-        placeholder="Search communities"
+        placeholder="Search Community here..."
         onChangeText={setSearchQuery}
         value={searchQuery}
         style={styles.searchBar}
+        inputStyle={styles.searchBarInput}
+        iconColor="#666666"
       />
 
       <FlatList
         data={communities}
         renderItem={renderCommunityCard}
         keyExtractor={item => item.id}
+        numColumns={2} // Display 2 columns
+        columnWrapperStyle={styles.columnWrapper}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl
@@ -232,7 +212,7 @@ export default function DiscoverCommunitiesScreen() {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text variant="bodyLarge">
+            <Text variant="bodyLarge" style={styles.emptyText}>
               {loading ? 'Loading communities...' : 'No communities found'}
             </Text>
           </View>
@@ -245,38 +225,93 @@ export default function DiscoverCommunitiesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F5F5',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    backgroundColor: '#FFFFFF',
+  },
+  headerTitle: {
+    color: '#333333',
+    fontWeight: '600',
   },
   searchBar: {
     margin: 16,
-    elevation: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E0E0E0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  searchBarInput: {
+    fontSize: 16,
+    color: '#333333',
   },
   list: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  columnWrapper: {
+    justifyContent: 'space-between',
+    marginBottom: 16,
   },
   card: {
-    marginBottom: 16,
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    marginHorizontal: 8,
+    padding: 16,
     elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
-  coverImage: {
-    height: 120,
+  cardContent: {
+    alignItems: 'flex-start',
   },
-  description: {
-    marginVertical: 8,
+  communityName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 4,
   },
-  creatorInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
+  communityDetails: {
+    fontSize: 14,
+    color: '#666666',
+    marginBottom: 12,
+  },
+  joinButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+  },
+  joinButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  joinedButton: {
+    borderColor: '#007AFF',
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+  },
+  joinedButtonLabel: {
+    color: '#007AFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
   emptyContainer: {
     flex: 1,
@@ -284,4 +319,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
-}); 
+  emptyText: {
+    color: '#666666',
+  },
+});
