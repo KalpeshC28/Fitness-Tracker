@@ -1,3 +1,4 @@
+//src/screens/main/CreateCommunnity.tsx
 import React, { useState } from 'react';
 import { View, StyleSheet, ScrollView, Image } from 'react-native';
 import { TextInput, Button, Switch, Text, IconButton } from 'react-native-paper';

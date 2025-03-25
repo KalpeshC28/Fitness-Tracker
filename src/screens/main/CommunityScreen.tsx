@@ -1,3 +1,4 @@
+// src/screens/main/CommunityScreen.tsx
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, RefreshControl, Image, TouchableOpacity } from 'react-native';
 import { Text, Button, Avatar, Card, IconButton, Divider, Menu } from 'react-native-paper';
@@ -80,8 +81,8 @@ export default function CommunityScreen() {
           user: {
             full_name: profile?.full_name,
             username: profile?.username,
-            avatar_url: profile?.avatar_url
-          }
+            avatar_url: profile?.avatar_url,
+          },
         };
       });
 
@@ -147,7 +148,7 @@ export default function CommunityScreen() {
         });
 
       if (error) throw error;
-      
+
       // Fetch updated community data instead of manually updating state
       await fetchCommunity();
     } catch (error) {
@@ -278,7 +279,7 @@ export default function CommunityScreen() {
           event: '*',
           schema: 'public',
           table: 'community_members',
-          filter: `community_id=eq.${id}`
+          filter: `community_id=eq.${id}`,
         },
         () => {
           fetchCommunity(); // Refresh community data when members change
@@ -295,7 +296,7 @@ export default function CommunityScreen() {
           event: 'DELETE',
           schema: 'public',
           table: 'communities',
-          filter: `id=eq.${id}`
+          filter: `id=eq.${id}`,
         },
         () => {
           router.replace('/(tabs)');
@@ -357,21 +358,20 @@ export default function CommunityScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <IconButton 
-          icon="arrow-left" 
-          size={24} 
-          onPress={() => router.back()} 
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          onPress={() => router.back()}
+          iconColor="#333333"
         />
-        
-        <Text 
-          variant="titleLarge" 
+        <Text
+          variant="titleLarge"
           style={styles.title}
           numberOfLines={1}
           ellipsizeMode="tail"
         >
           {community.name}
         </Text>
-
         <View style={styles.headerRight}>
           {userRole === 'admin' ? (
             <Menu
@@ -382,6 +382,7 @@ export default function CommunityScreen() {
                   icon="dots-vertical"
                   size={24}
                   onPress={() => setShowMenu(true)}
+                  iconColor="#333333"
                 />
               }
             >
@@ -404,10 +405,11 @@ export default function CommunityScreen() {
               />
             </Menu>
           ) : (
-            <Button 
-              mode={isMember ? "outlined" : "contained"}
+            <Button
+              mode={isMember ? 'outlined' : 'contained'}
               onPress={isMember ? handleLeave : handleJoin}
-              style={styles.membershipButton}
+              style={[styles.membershipButton, { backgroundColor: isMember ? '#FFFFFF' : '#007AFF' }]}
+              labelStyle={[styles.membershipButtonLabel, { color: isMember ? '#007AFF' : '#FFFFFF' }]}
             >
               {isMember ? 'Leave' : 'Join'}
             </Button>
@@ -428,31 +430,42 @@ export default function CommunityScreen() {
         }
       >
         <View style={styles.communityInfo}>
-          {community.cover_image && (
-            <Card style={styles.coverImageCard}>
-              <Card.Cover source={{ uri: community.cover_image }} />
-            </Card>
+          {community.cover_image ? (
+            <View style={styles.coverImageContainer}>
+              <Image
+                source={{ uri: community.cover_image }}
+                style={styles.coverImage}
+                resizeMode="cover"
+              />
+            </View>
+          ) : (
+            <View style={styles.coverImagePlaceholder}>
+              <Text style={styles.coverImagePlaceholderText}>No Cover Image</Text>
+            </View>
           )}
-          
-          <View style={styles.statsContainer}>
-            <View style={styles.statItem}>
-              <Text variant="headlineMedium" style={styles.statNumber}>
-                {memberCount}
-              </Text>
-              <Text variant="bodyMedium" style={styles.statLabel}>
-                {memberCount === 1 ? 'Member' : 'Members'}
+
+          <View style={styles.infoContainer}>
+            <Text variant="titleLarge" style={styles.communityName}>
+              {community.name}
+            </Text>
+            <Text variant="bodyLarge" style={styles.description}>
+              {community.description || 'No description'}
+            </Text>
+            <View style={styles.statsContainer}>
+              <View style={styles.statItem}>
+                <Text variant="headlineMedium" style={styles.statNumber}>
+                  {memberCount}
+                </Text>
+                <Text variant="bodyMedium" style={styles.statLabel}>
+                  {memberCount === 1 ? 'Member' : 'Members'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.creatorInfo}>
+              <Text variant="bodyMedium" style={styles.creatorText}>
+                Created by {community.creator?.full_name || community.creator?.username}
               </Text>
             </View>
-          </View>
-
-          <Text variant="bodyLarge" style={styles.description}>
-            {community.description || 'No description'}
-          </Text>
-
-          <View style={styles.creatorInfo}>
-            <Text variant="bodyMedium">
-              Created by {community.creator?.full_name || community.creator?.username}
-            </Text>
           </View>
         </View>
 
@@ -487,19 +500,6 @@ export default function CommunityScreen() {
         </Card>
 
         <Divider style={styles.divider} />
-
-        {/* {isMember && (
-          <Button
-            mode="contained"
-            icon="plus"
-            onPress={() => setCreatePostVisible(true)}
-            style={styles.createPostButton}
-          >
-            Create Post
-          </Button>
-        )} */}
-
-        {/* {posts.map(renderPost)} */}
       </ScrollView>
 
       <CreatePostModal
@@ -535,39 +535,78 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     height: 64,
   },
-  headerLeft: {
-    width: 48,
-    justifyContent: 'center',
-  },
-  headerCenter: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
   title: {
     flex: 1,
     marginHorizontal: 12,
     fontWeight: '600',
+    color: '#333333',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  membershipButton: {
+    marginRight: 8,
+    borderRadius: 20,
+    borderColor: '#007AFF',
+    borderWidth: 1,
+  },
+  membershipButtonLabel: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   content: {
     flex: 1,
   },
   communityInfo: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
-  coverImageCard: {
+  coverImageContainer: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
     marginBottom: 16,
   },
-  description: {
+  coverImage: {
+    width: '100%',
+    height: '100%',
+  },
+  coverImagePlaceholder: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  coverImagePlaceholderText: {
+    color: '#666666',
+    fontSize: 16,
+  },
+  infoContainer: {
+    paddingHorizontal: 8,
+  },
+  communityName: {
+    fontWeight: '700',
+    color: '#333333',
     marginBottom: 8,
+  },
+  description: {
+    marginBottom: 12,
+    color: '#666666',
   },
   statsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 16,
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   statItem: {
     alignItems: 'center',
@@ -582,31 +621,18 @@ const styles = StyleSheet.create({
   creatorInfo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
+  },
+  creatorText: {
+    color: '#666666',
   },
   divider: {
     marginVertical: 16,
-  },
-  createPostButton: {
-    margin: 16,
-    marginTop: 0,
   },
   post: {
     marginHorizontal: 16,
     marginBottom: 16,
     elevation: 2,
     borderRadius: 8,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  membershipButton: {
-    marginRight: 8,
-    borderRadius: 20,
   },
   mediaContainer: {
     width: '100%',
@@ -617,22 +643,15 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  uploadProgress: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   section: {
     marginHorizontal: 16,
     marginBottom: 16,
+    borderRadius: 12,
+    elevation: 2,
   },
   sectionTitle: {
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#333333',
   },
   membersList: {
     marginTop: 8,
@@ -649,8 +668,9 @@ const styles = StyleSheet.create({
   },
   memberName: {
     fontWeight: '500',
+    color: '#333333',
   },
   memberRole: {
-    color: '#666',
+    color: '#666666',
   },
-}); 
+});

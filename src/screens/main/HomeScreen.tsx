@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, FlatList, Animated, TouchableWithoutFeedback, RefreshControl, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Text, Button, Avatar, Card, Switch } from 'react-native-paper';
+import { Text, Button, Avatar, Card, Switch, Icon } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import { usePosts } from '../../hooks/usePosts';
 import { useCourses } from '../../hooks/useCourses';
@@ -34,7 +34,7 @@ export default function HomeScreen() {
   const { posts, loading, refreshing, fetchPosts, activeCommName } = usePosts();
   const { courses, fetchCourses } = useCourses();
   const { activeCommunityId } = useActiveCommunity();
-  
+
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedPost, setSelectedPost] = useState<string | null>(null);
   const [showProfileCompletion, setShowProfileCompletion] = useState(false);
@@ -45,7 +45,7 @@ export default function HomeScreen() {
   const [memberCount, setMemberCount] = useState(0);
   const [isMuted, setIsMuted] = useState(false); // For mute notifications
   const [userRole, setUserRole] = useState<'member' | 'admin' | null>(null);
-  const [isMember, setIsMember] = useState(false)
+  const [isMember, setIsMember] = useState(false);
 
   const translateX = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
@@ -112,8 +112,8 @@ export default function HomeScreen() {
           user: {
             full_name: profile?.full_name,
             username: profile?.username,
-            avatar_url: profile?.avatar_url
-          }
+            avatar_url: profile?.avatar_url,
+          },
         };
       });
 
@@ -217,25 +217,92 @@ export default function HomeScreen() {
     console.log('Notifications muted:', !isMuted);
   };
 
+  const renderEmptyState = (type: 'posts' | 'courses' | 'announcements') => {
+    let iconName: string;
+    let message: string;
+    let actionText: string | null = null;
+    let onActionPress: (() => void) | null = null;
+
+    switch (type) {
+      case 'posts':
+        iconName = 'post-outline';
+        message = 'No posts yet in this community.';
+        if (isMember) {
+          actionText = 'Create the first post!';
+          onActionPress = () => setCreatePostVisible(true);
+        }
+        break;
+      case 'courses':
+        iconName = 'book-open-variant';
+        message = 'No courses available yet.';
+        if (isAdmin) {
+          actionText = 'Add a course now!';
+          onActionPress = () => router.push(`/create-course/${activeCommunityId}`);
+        }
+        break;
+      case 'announcements':
+        iconName = 'bullhorn-outline';
+        message = 'No updates yet.';
+        if (isAdmin) {
+          actionText = 'Post an update!';
+          onActionPress = () => setCreatePostVisible(true);
+        }
+        break;
+      default:
+        return null;
+    }
+
+    return (
+      <View style={styles.emptyStateContainer}>
+        <Icon source={iconName} size={48} color="#666666" />
+        <Text variant="bodyLarge" style={styles.emptyStateText}>
+          {message}
+        </Text>
+        {actionText && onActionPress && (
+          <Button
+            mode="contained"
+            onPress={onActionPress}
+            style={styles.emptyStateButton}
+            labelStyle={styles.emptyStateButtonLabel}
+          >
+            {actionText}
+          </Button>
+        )}
+      </View>
+    );
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'community':
         return (
-          <FlatList
-            data={posts}
-            renderItem={({ item }) => (
-              <PostCard
-                post={item}
-                onDelete={handleDeletePost}
-                selectedPost={selectedPost}
-                setSelectedPost={setSelectedPost}
-              />
+          <>
+            {isMember && activeCommunityId && (
+              <Button
+                mode="contained"
+                icon="plus"
+                onPress={() => setCreatePostVisible(true)}
+                style={styles.createPostButton}
+              >
+                Create Post
+              </Button>
             )}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.content}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchPosts('community')} />}
-            ListEmptyComponent={<Text variant="bodyLarge">No posts yet</Text>}
-          />
+            <FlatList
+              data={posts}
+              renderItem={({ item }) => (
+                <PostCard
+                  post={item}
+                  onDelete={handleDeletePost}
+                  selectedPost={selectedPost}
+                  setSelectedPost={setSelectedPost}
+                />
+              )}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.content}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchPosts('community')} />}
+              ListEmptyComponent={renderEmptyState('posts')}
+            />
+          </>
         );
       case 'courses':
         return (
@@ -244,6 +311,7 @@ export default function HomeScreen() {
             isAdmin={isAdmin}
             communityId={activeCommunityId || ''}
             onCourseUpdate={fetchCourses}
+            emptyComponent={renderEmptyState('courses')}
           />
         );
       case 'announcements':
@@ -272,7 +340,7 @@ export default function HomeScreen() {
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.content}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => fetchPosts('announcements')} />}
-              ListEmptyComponent={<Text variant="bodyLarge">No updates yet</Text>}
+              ListEmptyComponent={renderEmptyState('announcements')}
             />
           </>
         );
@@ -355,11 +423,11 @@ export default function HomeScreen() {
             <Card style={styles.section}>
               <Card.Content>
                 <Text variant="titleMedium" style={styles.sectionTitle}>Settings</Text>
-                
+
                 <View style={styles.settingItem}>
                   <Text variant="bodyLarge">Membership Info</Text>
                   <Text variant="bodyMedium" style={styles.settingText}>
-                    {isMember 
+                    {isMember
                       ? `You are a${isAdmin ? 'n admin' : ' member'} of this community since ${members.find(m => m.user_id === user?.id)?.joined_at.split('T')[0] || 'unknown date'}`
                       : 'You are not a member of this community'}
                   </Text>
@@ -421,11 +489,11 @@ export default function HomeScreen() {
         onClose={() => setShowProfileCompletion(false)}
       />
 
-      {activeTab === 'announcements' && activeCommunityId && (
+      {(activeTab === 'community' || activeTab === 'announcements') && activeCommunityId && (
         <CreatePostModal
           visible={createPostVisible}
           onDismiss={() => setCreatePostVisible(false)}
-          onPost={() => fetchPosts('announcements')}
+          onPost={() => fetchPosts(activeTab)}
           communityId={activeCommunityId}
         />
       )}
@@ -437,29 +505,31 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
   contentContainer: { flex: 1, backgroundColor: '#fff' },
   content: { paddingTop: 0, paddingHorizontal: 5 },
-  overlay: { 
-    position: 'absolute', 
-    top: 0, 
-    left: 0, 
-    right: 0, 
-    bottom: 0, 
-    backgroundColor: 'rgba(0, 0, 0, 0.5)', 
-    zIndex: 1 
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 1,
   },
   overlayTouch: { flex: 1, width: '100%', height: '100%' },
-  sidebar: { 
-    position: 'absolute', 
-    left: 0, 
-    top: 0, 
-    bottom: 0, 
-    width: SIDEBAR_WIDTH, 
-    backgroundColor: '#FFFFFF', 
-    zIndex: 2 
+  sidebar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: SIDEBAR_WIDTH,
+    backgroundColor: '#FFFFFF',
+    zIndex: 2,
   },
   createPostButton: {
     margin: 16,
     marginTop: 8,
     marginBottom: 8,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
   },
   membersContainer: {
     padding: 8,
@@ -513,5 +583,27 @@ const styles = StyleSheet.create({
   leaveButton: {
     marginTop: 16,
     borderColor: '#FF3B30',
+  },
+  emptyStateContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    marginTop: 40,
+  },
+  emptyStateText: {
+    marginTop: 16,
+    color: '#666666',
+    textAlign: 'center',
+  },
+  emptyStateButton: {
+    marginTop: 16,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+  },
+  emptyStateButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

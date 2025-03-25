@@ -1,6 +1,6 @@
 // src/screens/main/SearchScreen.tsx
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Image, Dimensions } from 'react-native';
 import { Text, Searchbar, Button, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -15,6 +15,10 @@ export default function SearchScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [joinedCommunities, setJoinedCommunities] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+
+  // Compute numColumns based on screen width
+  const screenWidth = Dimensions.get('window').width;
+  const numColumns = screenWidth < 400 ? 2 : 3; // 2 columns for small screens, 3 for larger screens
 
   const fetchCommunities = async (query: string = '') => {
     setLoading(true);
@@ -180,10 +184,28 @@ export default function SearchScreen() {
         style={styles.card}
         onPress={() => navigateToCommunity(item.id)}
       >
+        <View style={styles.coverImageContainer}>
+          {item.cover_image ? (
+            <Image
+              source={{ uri: item.cover_image }}
+              style={styles.coverImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.coverImagePlaceholder}>
+              <Text style={styles.coverImagePlaceholderText}>No Image</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.cardContent}>
-          <Text style={styles.communityName}>{item.name}</Text>
-          <Text style={styles.communityDetails}>
-            {item.description ? item.description.slice(0, 50) + '...' : '-details'}
+          <Text style={styles.communityName} numberOfLines={1} ellipsizeMode="tail">
+            {item.name}
+          </Text>
+          <Text style={styles.communityDetails} numberOfLines={2} ellipsizeMode="tail">
+            {item.description ? item.description : 'No description'}
+          </Text>
+          <Text style={styles.memberCount}>
+            {item.member_count} {item.member_count === 1 ? 'Member' : 'Members'}
           </Text>
           <View style={styles.buttonContainer}>
             <Button
@@ -238,7 +260,8 @@ export default function SearchScreen() {
             data={communities}
             renderItem={renderCommunityCard}
             keyExtractor={item => item.id}
-            numColumns={2} // Display 2 columns
+            numColumns={numColumns} // Dynamic number of columns
+            key={`flatlist-${numColumns}`} // Add key to force re-render when numColumns changes
             columnWrapperStyle={styles.columnWrapper}
             contentContainerStyle={styles.list}
             refreshControl={
@@ -267,23 +290,23 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F5F5F5', // Light gray background for better contrast
   },
   content: {
     flex: 1,
-    padding: 16,
+    padding: 12,
   },
   searchBar: {
-    marginBottom: 16,
+    marginBottom: 12,
     backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E0E0E0',
-    elevation: 2,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 3,
   },
   searchBarInput: {
     fontSize: 16,
@@ -297,61 +320,90 @@ const styles = StyleSheet.create({
   },
   columnWrapper: {
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   card: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 10,
-    marginHorizontal: 8,
-    padding: 16,
-    elevation: 2,
+    backgroundColor: '#FFFFFF', // White background for cards
+    borderRadius: 12,
+    marginHorizontal: 6,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    height: 150, // Fixed height to ensure consistent card size
+    shadowRadius: 3,
+    height: 200, // Reduced height for a more compact look
+    overflow: 'hidden',
+  },
+  coverImageContainer: {
+    width: '100%',
+    height: 60, // Reduced height for the cover image
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: 'hidden',
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+  },
+  coverImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#E8ECEF', // Softer gray for placeholder
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coverImagePlaceholderText: {
+    color: '#A0A0A0', // Lighter text color for placeholder
+    fontSize: 10,
+    fontWeight: '500',
   },
   cardContent: {
-    flex: 1, // Take up the full height of the card
-    justifyContent: 'space-between', // Space out the content and button
+    flex: 1,
+    padding: 8,
+    justifyContent: 'space-between',
   },
   communityName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14, // Slightly smaller font
+    fontWeight: '700',
     color: '#333333',
     marginBottom: 4,
   },
   communityDetails: {
-    fontSize: 14,
+    fontSize: 12, // Smaller font for description
     color: '#666666',
-    flex: 1, // Allow the description to take up remaining space
+    lineHeight: 16, // Better readability
+    marginBottom: 4,
+  },
+  memberCount: {
+    fontSize: 10,
+    color: '#888888',
+    marginBottom: 6,
   },
   buttonContainer: {
-    marginTop: 8, // Ensure consistent spacing above the button
-    alignSelf: 'flex-start', // Align the button to the start
+    alignSelf: 'flex-start',
   },
   joinButton: {
     backgroundColor: '#007AFF',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 2,
+    borderRadius: 16,
+    paddingHorizontal: 8, // Reduced padding
+    paddingVertical: 0,
   },
   joinButtonLabel: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12, // Smaller font size
     fontWeight: '500',
   },
   joinedButton: {
     borderColor: '#007AFF',
     borderWidth: 1,
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 2,
+    borderRadius: 16,
+    paddingHorizontal: 25, // Reduced padding
+    paddingVertical: 0,
   },
   joinedButtonLabel: {
     color: '#007AFF',
-    fontSize: 14,
+    fontSize: 12, // Smaller font size
     fontWeight: '500',
   },
   emptyContainer: {
