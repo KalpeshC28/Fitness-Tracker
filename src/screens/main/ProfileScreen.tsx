@@ -129,9 +129,9 @@ export default function ProfileScreen() {
           <Card.Content>
             <Text variant="titleMedium" style={styles.sectionTitle}>Leaderboard Stats</Text>
             <View style={styles.detailRow}>
-              <Text variant="bodyMedium" style={styles.detailLabel}>Aura Points</Text>
+              <Text variant="bodyMedium" style={styles.detailLabel}>Aura Points - Aura Rank</Text>
               <Text variant="bodyMedium" style={styles.detailValue}>
-                {profile?.aura_points || 0} Aura
+                {profile?.aura_points || 0} Aura - {communityRanks.length > 0 ? communityRanks[0].rank : 'Unranked'}
               </Text>
             </View>
             {communityRanks.length > 0 ? (
@@ -143,9 +143,6 @@ export default function ProfileScreen() {
                       {rank.community_name}
                     </Text>
                     <View style={styles.rankInfo}>
-                      <Text variant="bodyMedium" style={styles.detailValue}>
-                        Rank: {rank.rank}
-                      </Text>
                       <Text variant="bodyMedium" style={styles.detailValue}>
                         Position: #{rank.position}
                       </Text>
@@ -162,7 +159,7 @@ export default function ProfileScreen() {
               </>
             )}
           </Card.Content>
-        </Card>
+        </Card> 
 
         {/* Bio Section */}
         <Card style={styles.section}>

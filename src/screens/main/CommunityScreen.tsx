@@ -1,6 +1,15 @@
 // src/screens/main/CommunityScreen.tsx
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, RefreshControl, Image, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { 
+  View, 
+  StyleSheet, 
+  ScrollView, 
+  RefreshControl, 
+  Image, 
+  FlatList, 
+  Animated,
+  FlatListProps
+} from 'react-native';
 import { Text, Button, Avatar, Card, IconButton, Divider, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +19,14 @@ import { Post } from '../../types/post';
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
 import { Video, ResizeMode } from 'expo-av';
 import { EditCommunityModal } from '../../components/modals/EditCommunityModal';
+
+interface MediaItem {
+  id?: string;
+  type: 'image' | 'video';
+  uri: string;
+}
+
+const AnimatedFlatList = Animated.createAnimatedComponent<FlatListProps<MediaItem>>(FlatList);
 
 interface CommunityMember {
   user_id: string;
@@ -36,10 +53,12 @@ export default function CommunityScreen() {
   const [members, setMembers] = useState<CommunityMember[]>([]);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [videoError, setVideoError] = useState(false);
+  const scrollX = useRef(new Animated.Value(0)).current;
 
   const fetchCommunity = async () => {
     try {
-      // Fetch community details
       const { data: communityData, error: communityError } = await supabase
         .from('communities')
         .select(`
@@ -53,7 +72,11 @@ export default function CommunityScreen() {
 
       if (communityError) throw communityError;
 
-      // Update the members fetch query in fetchCommunity function
+      // Fix video URL if needed
+      if (communityData?.video_url && !communityData.video_url.startsWith('http')) {
+        communityData.video_url = `${supabase.storageUrl}/object/public/community_posts/community-videos/${communityData.video_url.split('/').pop()}`;
+      }
+
       const { data: membersData, error: membersError } = await supabase
         .from('community_members')
         .select('user_id, role, joined_at')
@@ -62,7 +85,6 @@ export default function CommunityScreen() {
 
       if (membersError) throw membersError;
 
-      // Fetch profiles for members in a separate query
       const memberIds = membersData?.map(m => m.user_id) || [];
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
@@ -71,7 +93,6 @@ export default function CommunityScreen() {
 
       if (profilesError) throw profilesError;
 
-      // Combine the data
       const transformedMembers = (membersData || []).map(member => {
         const profile = profilesData?.find(p => p.id === member.user_id);
         return {
@@ -90,7 +111,6 @@ export default function CommunityScreen() {
       setMembers(transformedMembers);
       setMemberCount(transformedMembers.length);
 
-      // Check user membership and role
       const userMember = transformedMembers.find(m => m.user_id === user?.id);
       if (userMember) {
         setIsMember(true);
@@ -149,7 +169,6 @@ export default function CommunityScreen() {
 
       if (error) throw error;
 
-      // Fetch updated community data instead of manually updating state
       await fetchCommunity();
     } catch (error) {
       console.error('Error joining community:', error);
@@ -165,7 +184,6 @@ export default function CommunityScreen() {
       if (!isConfirmed) return;
 
       try {
-        // First check if there are other members
         const { data: membersData, error: membersError } = await supabase
           .from('community_members')
           .select('user_id, role')
@@ -176,7 +194,6 @@ export default function CommunityScreen() {
         if (membersError) throw membersError;
 
         if (!membersData || membersData.length === 0) {
-          // Delete the community if admin is the last member
           const { error: deleteError } = await supabase
             .from('communities')
             .delete()
@@ -188,7 +205,6 @@ export default function CommunityScreen() {
           return;
         }
 
-        // If there are other members, promote the first one to admin
         const newAdmin = membersData[0];
         const { error: promoteError } = await supabase
           .from('community_members')
@@ -198,7 +214,6 @@ export default function CommunityScreen() {
 
         if (promoteError) throw promoteError;
 
-        // Update community creator
         const { error: updateCreatorError } = await supabase
           .from('communities')
           .update({ creator_id: newAdmin.user_id })
@@ -213,7 +228,6 @@ export default function CommunityScreen() {
     }
 
     try {
-      // Leave the community
       const { error: leaveError } = await supabase
         .from('community_members')
         .delete()
@@ -241,7 +255,17 @@ export default function CommunityScreen() {
     if (!isConfirmed) return;
 
     try {
-      // Delete the community directly
+      // Delete associated media files before deleting the community
+      if (community?.cover_image) {
+        const coverFilePath = community.cover_image.split('/').pop();
+        await supabase.storage.from('cover-photos').remove([coverFilePath!]);
+      }
+
+      if (community?.video_url) {
+        const videoFilePath = community.video_url.split('/').pop();
+        await supabase.storage.from('community_posts').remove([`community-videos/${videoFilePath!}`]);
+      }
+
       const { error } = await supabase
         .from('communities')
         .delete()
@@ -258,7 +282,6 @@ export default function CommunityScreen() {
         return;
       }
 
-      // Navigate back to home
       router.replace('/(tabs)');
     } catch (error) {
       console.error('Error deleting community:', error);
@@ -270,7 +293,6 @@ export default function CommunityScreen() {
     fetchCommunity();
     fetchPosts();
 
-    // Subscribe to member count changes
     const channel = supabase
       .channel('community_updates')
       .on(
@@ -282,12 +304,11 @@ export default function CommunityScreen() {
           filter: `community_id=eq.${id}`,
         },
         () => {
-          fetchCommunity(); // Refresh community data when members change
+          fetchCommunity();
         }
       )
       .subscribe();
 
-    // Subscribe to community deletion
     const deleteChannel = supabase
       .channel('community_deletion')
       .on(
@@ -310,6 +331,71 @@ export default function CommunityScreen() {
     };
   }, [id]);
 
+  const mediaItems: MediaItem[] = [];
+  if (community?.video_url) {
+    mediaItems.push({ 
+      id: 'video', 
+      type: 'video', 
+      uri: community.video_url 
+    });
+  }
+  if (community?.cover_image) {
+    mediaItems.push({ 
+      id: 'image', 
+      type: 'image', 
+      uri: community.cover_image 
+    });
+  }
+
+  const renderMediaItem = ({ item }: { item: MediaItem }) => (
+    <View style={styles.carouselItem}>
+      {item.type === 'video' ? (
+        videoError ? (
+          <View style={[styles.carouselMedia, styles.errorContainer]}>
+            <Text>Video failed to load</Text>
+          </View>
+        ) : (
+          <Video
+            style={styles.carouselMedia}
+            source={{ uri: item.uri }}
+            useNativeControls
+            resizeMode={ResizeMode.CONTAIN}
+            onError={() => setVideoError(true)}
+            shouldPlay={false}
+            isLooping={false}
+          />
+        )
+      ) : (
+        <Image
+          source={{ uri: item.uri }}
+          style={styles.carouselMedia}
+          resizeMode="cover"
+        />
+      )}
+    </View>
+  );
+
+  const renderDot = (index: number) => {
+    const inputRange = [(index - 1) * 300, index * 300, (index + 1) * 300];
+    const scale = scrollX.interpolate({
+      inputRange,
+      outputRange: [0.8, 1.4, 0.8],
+      extrapolate: 'clamp',
+    });
+    const opacity = scrollX.interpolate({
+      inputRange,
+      outputRange: [0.4, 1, 0.4],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <Animated.View
+        key={index}
+        style={[styles.dot, { transform: [{ scale }], opacity }]}
+      />
+    );
+  };
+
   const renderPost = (post: Post) => (
     <Card key={post.id} style={styles.post}>
       <Card.Title
@@ -330,11 +416,12 @@ export default function CommunityScreen() {
         <View style={styles.mediaContainer}>
           {post.media_type === 'video' ? (
             <Video
-              source={{ uri: post.media_urls[0] }}
               style={styles.media}
+              source={{ uri: post.media_urls[0] }}
               useNativeControls
               resizeMode={ResizeMode.CONTAIN}
-              isLooping
+              shouldPlay={false}
+              isLooping={false}
             />
           ) : (
             <Image
@@ -354,6 +441,13 @@ export default function CommunityScreen() {
   );
 
   if (!community) return null;
+
+  const timeLeft = community.offer_end_time
+    ? Math.max(0, new Date(community.offer_end_time).getTime() - Date.now())
+    : 0;
+  const hours = Math.floor(timeLeft / (1000 * 60 * 60));
+  const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -429,75 +523,96 @@ export default function CommunityScreen() {
           />
         }
       >
-        <View style={styles.communityInfo}>
-          {community.cover_image ? (
-            <View style={styles.coverImageContainer}>
-              <Image
-                source={{ uri: community.cover_image }}
-                style={styles.coverImage}
-                resizeMode="cover"
-              />
-            </View>
-          ) : (
-            <View style={styles.coverImagePlaceholder}>
-              <Text style={styles.coverImagePlaceholderText}>No Cover Image</Text>
-            </View>
-          )}
-
-          <View style={styles.infoContainer}>
-            <Text variant="titleLarge" style={styles.communityName}>
-              {community.name}
-            </Text>
-            <Text variant="bodyLarge" style={styles.description}>
-              {community.description || 'No description'}
-            </Text>
-            <View style={styles.statsContainer}>
-              <View style={styles.statItem}>
-                <Text variant="headlineMedium" style={styles.statNumber}>
-                  {memberCount}
-                </Text>
-                <Text variant="bodyMedium" style={styles.statLabel}>
-                  {memberCount === 1 ? 'Member' : 'Members'}
-                </Text>
+        {mediaItems.length > 0 ? (
+          <View style={styles.carouselContainer}>
+            <AnimatedFlatList
+              data={mediaItems}
+              renderItem={renderMediaItem}
+              keyExtractor={(item, index) => item.id || index.toString()}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onScroll={Animated.event(
+                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                { useNativeDriver: true }
+              )}
+              onMomentumScrollEnd={(event) => {
+                const index = Math.round(event.nativeEvent.contentOffset.x / 300);
+                setCurrentIndex(index);
+              }}
+            />
+            {mediaItems.length > 1 && (
+              <View style={styles.dotsContainer}>
+                {mediaItems.map((_, index) => renderDot(index))}
               </View>
-            </View>
-            <View style={styles.creatorInfo}>
-              <Text variant="bodyMedium" style={styles.creatorText}>
-                Created by {community.creator?.full_name || community.creator?.username}
-              </Text>
-            </View>
+            )}
           </View>
+        ) : (
+          <View style={styles.coverImagePlaceholder}>
+            <Text style={styles.coverImagePlaceholderText}>No Media Available</Text>
+          </View>
+        )}
+
+        <Text variant="titleLarge" style={styles.communityName}>
+          {community.name}
+        </Text>
+
+        <View style={styles.detailsContainer}>
+          <Text style={styles.detailText}>
+            {community.is_private ? 'Private' : 'Public'}
+          </Text>
+          <Text style={styles.detailText}>
+            {community.is_paid ? `Paid: $${community.price}` : 'Free'}
+          </Text>
+          <Text style={styles.detailText}>Total Members: {memberCount}</Text>
+          <Text style={styles.detailText}>
+            Owner: {community.creator?.full_name || community.creator?.username}
+          </Text>
         </View>
 
-        <Card style={styles.section}>
-          <Card.Content>
-            <Text variant="titleMedium" style={styles.sectionTitle}>
-              Members ({memberCount})
-            </Text>
-            <View style={styles.membersList}>
-              {members.map((member) => (
-                <TouchableOpacity
-                  key={member.user_id}
-                  style={styles.memberItem}
-                  onPress={() => router.push(`/profile/${member.user_id}`)}
-                >
-                  <Avatar.Image
-                    size={40}
-                    source={{ uri: member.user.avatar_url || undefined }}
-                  />
-                  <View style={styles.memberInfo}>
-                    <Text variant="bodyMedium" style={styles.memberName}>
-                      {member.user.full_name || member.user.username}
-                    </Text>
-                    <Text variant="bodySmall" style={styles.memberRole}>
-                      {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </Card.Content>
-        </Card>
+        {!isMember && (
+          <Button
+            mode="contained"
+            onPress={handleJoin}
+            style={styles.joinButton}
+            labelStyle={styles.joinButtonLabel}
+          >
+            Join Now {community.is_paid ? `$${community.discounted_price || community.price} (Save $${community.price - (community.discounted_price || community.price)})` : 'for Free'}
+          </Button>
+        )}
+
+        {community.is_paid && community.seats_left && community.offer_end_time && (
+          <Text style={styles.offerText}>
+            Offer Limited: {community.seats_left} Seats Left
+          </Text>
+        )}
+
+        {community.is_paid && community.offer_end_time && timeLeft > 0 && (
+          <Text style={styles.timerText}>
+            Time Left: {hours}h {minutes}m {seconds}s
+          </Text>
+        )}
+
+        {(community.bonus_1 || community.bonus_2 || community.bonus_3) && (
+          <View style={styles.bonusesContainer}>
+            <Text style={styles.bonusesTitle}>Bonuses</Text>
+            {community.bonus_1 && (
+              <View style={styles.bonusItem}>
+                <Text style={styles.bonusText}>{community.bonus_1}</Text>
+              </View>
+            )}
+            {community.bonus_2 && (
+              <View style={styles.bonusItem}>
+                <Text style={styles.bonusText}>{community.bonus_2}</Text>
+              </View>
+            )}
+            {community.bonus_3 && (
+              <View style={styles.bonusItem}>
+                <Text style={styles.bonusText}>{community.bonus_3}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <Divider style={styles.divider} />
       </ScrollView>
@@ -558,20 +673,31 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  communityInfo: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+  carouselContainer: {
+    marginBottom: 16,
   },
-  coverImageContainer: {
-    width: '100%',
+  carouselItem: {
+    width: 300,
     height: 200,
     borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginHorizontal: 8,
   },
-  coverImage: {
+  carouselMedia: {
     width: '100%',
     height: '100%',
+  },
+  dotsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#007AFF',
+    marginHorizontal: 4,
   },
   coverImagePlaceholder: {
     width: '100%',
@@ -586,44 +712,64 @@ const styles = StyleSheet.create({
     color: '#666666',
     fontSize: 16,
   },
-  infoContainer: {
-    paddingHorizontal: 8,
-  },
   communityName: {
     fontWeight: '700',
     color: '#333333',
     marginBottom: 8,
+    paddingHorizontal: 16,
   },
-  description: {
-    marginBottom: 12,
-    color: '#666666',
-  },
-  statsContainer: {
+  detailsContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
     marginBottom: 12,
   },
-  statItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontWeight: 'bold',
-    color: '#007AFF',
-  },
-  statLabel: {
+  detailText: {
     color: '#666666',
+    fontSize: 14,
   },
-  creatorInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  joinButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 20,
+    marginHorizontal: 16,
+    marginBottom: 12,
   },
-  creatorText: {
-    color: '#666666',
+  joinButtonLabel: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  offerText: {
+    textAlign: 'center',
+    color: '#FF3B30',
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  timerText: {
+    textAlign: 'center',
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  bonusesContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  bonusesTitle: {
+    fontWeight: '700',
+    color: '#333333',
+    marginBottom: 8,
+  },
+  bonusItem: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  bonusText: {
+    color: '#333333',
+    fontSize: 14,
   },
   divider: {
     marginVertical: 16,
@@ -643,34 +789,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  section: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 12,
-    elevation: 2,
-  },
-  sectionTitle: {
-    fontWeight: '700',
-    color: '#333333',
-  },
-  membersList: {
-    marginTop: 8,
-  },
-  memberItem: {
-    flexDirection: 'row',
+  errorContainer: {
+    justifyContent: 'center',
     alignItems: 'center',
-    padding: 8,
-    borderRadius: 8,
-  },
-  memberInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  memberName: {
-    fontWeight: '500',
-    color: '#333333',
-  },
-  memberRole: {
-    color: '#666666',
+    backgroundColor: '#f0f0f0',
   },
 });

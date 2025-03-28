@@ -1,3 +1,4 @@
+//src/componetns/modals/CreateCourseModals.tsx
 import React, { useState, useRef } from 'react';
 import { View, StyleSheet, Modal, ScrollView, Image } from 'react-native';
 import { Text, TextInput, Button, IconButton, Portal } from 'react-native-paper';
