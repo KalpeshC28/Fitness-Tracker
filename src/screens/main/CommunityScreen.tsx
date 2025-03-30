@@ -8,7 +8,8 @@ import {
   Image, 
   FlatList, 
   Animated,
-  FlatListProps
+  FlatListProps,
+  Dimensions
 } from 'react-native';
 import { Text, Button, Avatar, Card, IconButton, Divider, Menu } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +20,10 @@ import { Post } from '../../types/post';
 import { CreatePostModal } from '../../components/modals/CreatePostModal';
 import { Video, ResizeMode } from 'expo-av';
 import { EditCommunityModal } from '../../components/modals/EditCommunityModal';
+import { MaterialIcons, MaterialCommunityIcons, FontAwesome, Ionicons } from '@expo/vector-icons';
+
+// Add screen width constant
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 interface MediaItem {
   id?: string;
@@ -26,7 +31,9 @@ interface MediaItem {
   uri: string;
 }
 
-const AnimatedFlatList = Animated.createAnimatedComponent<FlatListProps<MediaItem>>(FlatList);
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList) as React.ComponentType<
+  FlatListProps<MediaItem> & { ref?: React.RefObject<FlatList<MediaItem>> }
+>;
 
 interface CommunityMember {
   user_id: string;
@@ -55,7 +62,29 @@ export default function CommunityScreen() {
   const [showMenu, setShowMenu] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [videoError, setVideoError] = useState(false);
+  const [currentTimeLeft, setCurrentTimeLeft] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
+  
+
+  useEffect(() => {
+    if (!community?.offer_end_time) return;
+    
+    // Calculate initial time left
+    const initialTimeLeft = Math.max(0, new Date(community.offer_end_time).getTime() - Date.now());
+    setCurrentTimeLeft(initialTimeLeft);
+  
+    // Set up interval for countdown
+    const timerInterval = setInterval(() => {
+      const newTimeLeft = Math.max(0, new Date(community.offer_end_time).getTime() - Date.now());
+      setCurrentTimeLeft(newTimeLeft);
+      
+      if (newTimeLeft <= 0) {
+        clearInterval(timerInterval);
+      }
+    }, 1000);
+  
+    return () => clearInterval(timerInterval);
+  }, [community?.offer_end_time]);
 
   const fetchCommunity = async () => {
     try {
@@ -75,6 +104,11 @@ export default function CommunityScreen() {
       // Fix video URL if needed
       if (communityData?.video_url && !communityData.video_url.startsWith('http')) {
         communityData.video_url = `${supabase.storageUrl}/object/public/community_posts/community-videos/${communityData.video_url.split('/').pop()}`;
+      }
+
+      // Fix cover image URL if needed
+      if (communityData?.cover_image && !communityData.cover_image.startsWith('http')) {
+        communityData.cover_image = `${supabase.storageUrl}/object/public/cover-photos/${communityData.cover_image.split('/').pop()}`;
       }
 
       const { data: membersData, error: membersError } = await supabase
@@ -331,6 +365,7 @@ export default function CommunityScreen() {
     };
   }, [id]);
 
+  // Improved media items creation
   const mediaItems: MediaItem[] = [];
   if (community?.video_url) {
     mediaItems.push({ 
@@ -347,20 +382,32 @@ export default function CommunityScreen() {
     });
   }
 
+  // Improved renderMediaItem with better error handling
   const renderMediaItem = ({ item }: { item: MediaItem }) => (
-    <View style={styles.carouselItem}>
+    <View style={[styles.carouselItem, { width: SCREEN_WIDTH }]}>
       {item.type === 'video' ? (
         videoError ? (
           <View style={[styles.carouselMedia, styles.errorContainer]}>
             <Text>Video failed to load</Text>
+            <Text style={styles.errorText}>URI: {item.uri}</Text>
+            <Button 
+              mode="contained" 
+              onPress={() => setVideoError(false)}
+              style={styles.retryButton}
+            >
+              Retry
+            </Button>
           </View>
         ) : (
           <Video
             style={styles.carouselMedia}
             source={{ uri: item.uri }}
             useNativeControls
-            resizeMode={ResizeMode.CONTAIN}
-            onError={() => setVideoError(true)}
+            resizeMode={ResizeMode.COVER}
+            onError={(error) => {
+              console.error('Video error:', error, item.uri);
+              setVideoError(true);
+            }}
             shouldPlay={false}
             isLooping={false}
           />
@@ -370,18 +417,26 @@ export default function CommunityScreen() {
           source={{ uri: item.uri }}
           style={styles.carouselMedia}
           resizeMode="cover"
+          onError={(error) => console.error('Image error:', error.nativeEvent, item.uri)}
         />
       )}
     </View>
   );
 
+  // Updated dots for accurate carousel position
   const renderDot = (index: number) => {
-    const inputRange = [(index - 1) * 300, index * 300, (index + 1) * 300];
+    const inputRange = [
+      (index - 1) * SCREEN_WIDTH, 
+      index * SCREEN_WIDTH, 
+      (index + 1) * SCREEN_WIDTH
+    ];
+    
     const scale = scrollX.interpolate({
       inputRange,
       outputRange: [0.8, 1.4, 0.8],
       extrapolate: 'clamp',
     });
+    
     const opacity = scrollX.interpolate({
       inputRange,
       outputRange: [0.4, 1, 0.4],
@@ -445,9 +500,9 @@ export default function CommunityScreen() {
   const timeLeft = community.offer_end_time
     ? Math.max(0, new Date(community.offer_end_time).getTime() - Date.now())
     : 0;
-  const hours = Math.floor(timeLeft / (1000 * 60 * 60));
-  const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+  const hours = Math.floor(currentTimeLeft / (1000 * 60 * 60));
+  const minutes = Math.floor((currentTimeLeft % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((currentTimeLeft % (1000 * 60)) / 1000);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -518,6 +573,7 @@ export default function CommunityScreen() {
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
+              fetchCommunity();
               fetchPosts();
             }}
           />
@@ -533,13 +589,16 @@ export default function CommunityScreen() {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onScroll={Animated.event(
-                [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                [{ nativeEvent: { contentOffset: { x: scrollX } }}],
                 { useNativeDriver: true }
               )}
               onMomentumScrollEnd={(event) => {
-                const index = Math.round(event.nativeEvent.contentOffset.x / 300);
+                const index = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
                 setCurrentIndex(index);
               }}
+              decelerationRate="fast"
+              snapToInterval={SCREEN_WIDTH}
+              snapToAlignment="center"
             />
             {mediaItems.length > 1 && (
               <View style={styles.dotsContainer}>
@@ -553,76 +612,145 @@ export default function CommunityScreen() {
           </View>
         )}
 
-        <Text variant="titleLarge" style={styles.communityName}>
-          {community.name}
-        </Text>
+        <View style={styles.communityInfoContainer}>
+          <Text variant="headlineMedium" style={styles.communityName}>
+            {community.name}
+          </Text>
 
-        <View style={styles.detailsContainer}>
-          <Text style={styles.detailText}>
-            {community.is_private ? 'Private' : 'Public'}
-          </Text>
-          <Text style={styles.detailText}>
-            {community.is_paid ? `Paid: $${community.price}` : 'Free'}
-          </Text>
-          <Text style={styles.detailText}>Total Members: {memberCount}</Text>
-          <Text style={styles.detailText}>
-            Owner: {community.creator?.full_name || community.creator?.username}
-          </Text>
+          <View style={styles.detailsContainer}>
+            <View style={styles.detailRow}>
+              <View style={styles.detailItem}>
+                <MaterialIcons name={community.is_private ? 'lock' : 'public'} size={20} color="#666" />
+                <Text style={styles.detailText}>
+                  {community.is_private ? 'Private' : 'Public'}
+                </Text>
+              </View>
+              
+              <View style={styles.detailItem}>
+                <MaterialCommunityIcons name="account-group" size={20} color="#666" />
+                <Text style={styles.detailText}>{memberCount} Members</Text>
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+            <View style={styles.detailItem}>
+                <FontAwesome name={community.is_paid ? 'dollar' : 'free-code-camp'} size={20} color="#666" />
+                <Text style={styles.detailText}>
+                  {community.is_paid ? (
+                    <>
+                      <Text style={styles.originalPrice}>${community.price}</Text>
+                      {community.discounted_price && (
+                        <Text> ${community.discounted_price}</Text>
+                      )}
+                    </>
+                  ) : (
+                    'Free'
+                  )}
+                </Text>
+              </View>
+              
+              <View style={styles.detailItem}>
+                <Ionicons name="person-circle" size={20} color="#666" />
+                <Text style={styles.detailText}>
+                  {community.creator?.full_name || community.creator?.username}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {!isMember && (
+            <Button
+              mode="contained"
+              onPress={handleJoin}
+              style={styles.joinButton}
+              labelStyle={styles.joinButtonLabel}
+            >
+              Join Now {community.is_paid ? `$${community.discounted_price || community.price}` : 'for Free'}
+            </Button>
+          )}
+
+          {community.is_paid && community.seats_left && community.offer_end_time && (
+            <View style={styles.offerContainer}>
+              <Text style={styles.offerText}>
+                Limited Offer: Only {community.seats_left} seats left!
+              </Text>
+              {timeLeft > 0 && (
+                <View style={styles.timerContainer}>
+                  <MaterialIcons name="timer" size={16} color="#FF3B30" />
+                  <Text style={styles.timerText}>
+                    {hours}h {minutes}m {seconds}s left
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {(community.bonus_1 || community.bonus_2 || community.bonus_3) && (
+            <View style={styles.bonusesContainer}>
+              <Text style={styles.sectionTitle}>Bonuses</Text>
+              <View style={styles.bonusesList}>
+                {community.bonus_1 && (
+                  <View style={styles.bonusItem}>
+                    <MaterialIcons name="stars" size={16} color="#FFD700" />
+                    <Text style={styles.bonusText}>{community.bonus_1}</Text>
+                  </View>
+                )}
+                {community.bonus_2 && (
+                  <View style={styles.bonusItem}>
+                    <MaterialIcons name="stars" size={16} color="#FFD700" />
+                    <Text style={styles.bonusText}>{community.bonus_2}</Text>
+                  </View>
+                )}
+                {community.bonus_3 && (
+                  <View style={styles.bonusItem}>
+                    <MaterialIcons name="stars" size={16} color="#FFD700" />
+                    <Text style={styles.bonusText}>{community.bonus_3}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </View>
 
-        {!isMember && (
-          <Button
-            mode="contained"
-            onPress={handleJoin}
-            style={styles.joinButton}
-            labelStyle={styles.joinButtonLabel}
-          >
-            Join Now {community.is_paid ? `$${community.discounted_price || community.price} (Save $${community.price - (community.discounted_price || community.price)})` : 'for Free'}
-          </Button>
-        )}
+        <Divider style={styles.divider} />
 
-        {community.is_paid && community.seats_left && community.offer_end_time && (
-          <Text style={styles.offerText}>
-            Offer Limited: {community.seats_left} Seats Left
-          </Text>
-        )}
-
-        {community.is_paid && community.offer_end_time && timeLeft > 0 && (
-          <Text style={styles.timerText}>
-            Time Left: {hours}h {minutes}m {seconds}s
-          </Text>
-        )}
-
-        {(community.bonus_1 || community.bonus_2 || community.bonus_3) && (
-          <View style={styles.bonusesContainer}>
-            <Text style={styles.bonusesTitle}>Bonuses</Text>
-            {community.bonus_1 && (
-              <View style={styles.bonusItem}>
-                <Text style={styles.bonusText}>{community.bonus_1}</Text>
-              </View>
-            )}
-            {community.bonus_2 && (
-              <View style={styles.bonusItem}>
-                <Text style={styles.bonusText}>{community.bonus_2}</Text>
-              </View>
-            )}
-            {community.bonus_3 && (
-              <View style={styles.bonusItem}>
-                <Text style={styles.bonusText}>{community.bonus_3}</Text>
-              </View>
+        {/* Posts section */}
+        {/* {posts.length > 0 ? (
+          posts.map(renderPost)
+        ) : (
+          <View style={styles.emptyPostsContainer}>
+            <Text style={styles.emptyPostsText}>No posts yet</Text>
+            {isMember && (
+              <Button 
+                mode="contained" 
+                onPress={() => setCreatePostVisible(true)}
+                style={styles.createPostButton}
+              >
+                Create First Post
+              </Button>
             )}
           </View>
-        )}
-
-        <Divider style={styles.divider} />
+        )} */}
       </ScrollView>
 
-      <CreatePostModal
+      {/* Floating action button for creating posts */}
+      {/* {isMember && (
+        <IconButton
+          icon="plus"
+          size={24}
+          onPress={() => setCreatePostVisible(true)}
+          style={styles.fab}
+          iconColor="#FFFFFF"
+        />
+      )} */}
+
+      {/* Modals */}
+      {/* <CreatePostModal
         visible={createPostVisible}
         onDismiss={() => setCreatePostVisible(false)}
         onPost={fetchPosts}
         communityId={id}
-      />
+      /> */}
 
       {community && (
         <EditCommunityModal
@@ -673,15 +801,18 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  communityInfoContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
   carouselContainer: {
+    width: '100%',
     marginBottom: 16,
   },
   carouselItem: {
-    width: 300,
-    height: 200,
-    borderRadius: 12,
+    width: SCREEN_WIDTH,
+    height: 220,
     overflow: 'hidden',
-    marginHorizontal: 8,
   },
   carouselMedia: {
     width: '100%',
@@ -701,12 +832,10 @@ const styles = StyleSheet.create({
   },
   coverImagePlaceholder: {
     width: '100%',
-    height: 200,
-    borderRadius: 12,
-    backgroundColor: '#F5F5F5',
+    height: 220,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    backgroundColor: '#F5F5F5',
   },
   coverImagePlaceholderText: {
     color: '#666666',
@@ -715,61 +844,95 @@ const styles = StyleSheet.create({
   communityName: {
     fontWeight: '700',
     color: '#333333',
-    marginBottom: 8,
-    paddingHorizontal: 16,
+    textAlign: 'center',
+    marginVertical: 16,
   },
   detailsContainer: {
+    marginBottom: 20,
+  },
+  detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
     marginBottom: 12,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '48%',
+    backgroundColor: '#F5F5F5',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
   },
   detailText: {
     color: '#666666',
     fontSize: 14,
+    marginLeft: 8,
+  },
+  originalPrice: {
+    textDecorationLine: 'line-through',
+    color: '#999',
+    marginRight: 4,
   },
   joinButton: {
     backgroundColor: '#007AFF',
-    borderRadius: 20,
-    marginHorizontal: 16,
-    marginBottom: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    paddingVertical: 6,
   },
   joinButtonLabel: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '500',
   },
+  offerContainer: {
+    backgroundColor: '#FFF5F5',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
   offerText: {
-    textAlign: 'center',
     color: '#FF3B30',
     fontSize: 14,
-    marginBottom: 8,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  timerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   timerText: {
-    textAlign: 'center',
     color: '#FF3B30',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
-    marginBottom: 12,
+    marginLeft: 4,
   },
-  bonusesContainer: {
-    paddingHorizontal: 16,
-    marginBottom: 16,
-  },
-  bonusesTitle: {
+  sectionTitle: {
     fontWeight: '700',
     color: '#333333',
+    fontSize: 16,
     marginBottom: 8,
   },
-  bonusItem: {
+  bonusesContainer: {
+    marginBottom: 16,
+  },
+  bonusesList: {
     backgroundColor: '#F5F5F5',
     borderRadius: 8,
     padding: 12,
+  },
+  bonusItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 8,
   },
   bonusText: {
     color: '#333333',
     fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
   },
   divider: {
     marginVertical: 16,
@@ -793,5 +956,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f0f0f0',
+  },
+  errorText: {
+    color: '#777',
+    fontSize: 12,
+    marginVertical: 8,
+  },
+  retryButton: {
+    marginTop: 8,
+  },
+  emptyPostsContainer: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyPostsText: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 16,
+  },
+  createPostButton: {
+    backgroundColor: '#007AFF',
+  },
+  fab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    backgroundColor: '#007AFF',
   },
 });
