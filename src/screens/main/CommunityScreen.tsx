@@ -21,6 +21,7 @@ import { CreatePostModal } from '../../components/modals/CreatePostModal';
 import { Video, ResizeMode } from 'expo-av';
 import { EditCommunityModal } from '../../components/modals/EditCommunityModal';
 import { MaterialIcons, MaterialCommunityIcons, FontAwesome, Ionicons } from '@expo/vector-icons';
+import TimerComponent from '../../components/communityScreen/TimerComponent';
 
 // Add screen width constant
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -674,42 +675,38 @@ export default function CommunityScreen() {
               <Text style={styles.offerText}>
                 Limited Offer: Only {community.seats_left} seats left!
               </Text>
-              {timeLeft > 0 && (
-                <View style={styles.timerContainer}>
-                  <MaterialIcons name="timer" size={16} color="#FF3B30" />
-                  <Text style={styles.timerText}>
-                    {hours}h {minutes}m {seconds}s left
-                  </Text>
-                </View>
-              )}
+              <TimerComponent endTime={community.offer_end_time} />
             </View>
           )}
 
-          {(community.bonus_1 || community.bonus_2 || community.bonus_3) && (
-            <View style={styles.bonusesContainer}>
-              <Text style={styles.sectionTitle}>Bonuses</Text>
-              <View style={styles.bonusesList}>
-                {community.bonus_1 && (
-                  <View style={styles.bonusItem}>
-                    <MaterialIcons name="stars" size={16} color="#FFD700" />
-                    <Text style={styles.bonusText}>{community.bonus_1}</Text>
-                  </View>
-                )}
-                {community.bonus_2 && (
-                  <View style={styles.bonusItem}>
-                    <MaterialIcons name="stars" size={16} color="#FFD700" />
-                    <Text style={styles.bonusText}>{community.bonus_2}</Text>
-                  </View>
-                )}
-                {community.bonus_3 && (
-                  <View style={styles.bonusItem}>
-                    <MaterialIcons name="stars" size={16} color="#FFD700" />
-                    <Text style={styles.bonusText}>{community.bonus_3}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
+{(community.bonus_1 || community.bonus_2 || community.bonus_3) && (
+  <View style={styles.bonusesContainer}>
+    {/* <Text style={styles.sectionTitle}>Bonuses</Text> */}
+    <View style={styles.bonusesList}>
+      {community.bonus_1 && (
+        <View style={styles.bonusItem}>
+          <Text style={styles.bonusLabel}>Bonus 1:</Text>
+          <View style={styles.divider_bonus} />
+          <Text style={styles.bonusText}>{community.bonus_1}</Text>
+        </View>
+      )}
+      {community.bonus_2 && (
+        <View style={styles.bonusItem}>
+          <Text style={styles.bonusLabel}>Bonus 2:</Text>
+          <View style={styles.divider_bonus} />
+          <Text style={styles.bonusText}>{community.bonus_2}</Text>
+        </View>
+      )}
+      {community.bonus_3 && (
+        <View style={styles.bonusItem}>
+          <Text style={styles.bonusLabel}>Bonus 3:</Text>
+          <View style={styles.divider_bonus} />
+          <Text style={styles.bonusText}>{community.bonus_3}</Text>
+        </View>
+      )}
+    </View>
+  </View>
+)}
         </View>
 
         <Divider style={styles.divider} />
@@ -886,53 +883,92 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   offerContainer: {
-    backgroundColor: '#FFF5F5',
+    backgroundColor: '#E6F0FA',
     padding: 12,
     borderRadius: 8,
     marginBottom: 16,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  offerTextContainer: {
+    marginBottom: 8,
   },
   offerText: {
-    color: '#FF3B30',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  timerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  timerText: {
-    color: '#FF3B30',
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 4,
-  },
-  sectionTitle: {
-    fontWeight: '700',
     color: '#333333',
     fontSize: 16,
-    marginBottom: 8,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  seatsNumber: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FF3B30',
+    backgroundColor: '#FFF5F5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
   },
   bonusesContainer: {
-    marginBottom: 16,
+    marginBottom: 20,
+    paddingHorizontal: 12, // Reduced for compact alignment
+    backgroundColor: '#F8F9FA', // Light gray for a soft, neutral backdrop
+    borderRadius: 10,
+    paddingVertical: 10,
   },
-  bonusesList: {
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
-    padding: 12,
-  },
-  bonusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  
+  sectionTitle: {
+    fontSize: 14, // Smaller for a refined look
+    fontWeight: '700',
+    color: '#1C2526', // Deep charcoal for elegance
     marginBottom: 8,
+    textTransform: 'uppercase', // Uppercase for a premium feel
+    letterSpacing: 1, // Subtle spacing for sophistication
   },
+  
+  bonusesList: {
+    backgroundColor: 'linear-gradient(180deg, #FFFFFF 0%, #F1F3F5 100%)', // Subtle gradient for depth
+    borderRadius: 8,
+    padding: 10, // Compact padding
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB', // Light gray border for definition
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2, // Minimal shadow for Android
+  },
+  
+  bonusItem: {
+    marginBottom: 12, // Space between bonus items
+    paddingHorizontal: 8, // Compact horizontal padding
+  },
+  
+  bonusLabel: {
+    fontSize: 18, // Smaller text for a delicate look
+    fontWeight: '600',
+    color: '#2D3748', // Dark slate for contrast
+    marginBottom: 4, // Space before divider
+  },
+  
+  divider_bonus: {
+    height: 1,
+    backgroundColor: '#E2E8F0', // Light gray divider
+    marginVertical: 4, // Space around divider
+    opacity: 0.7, // Subtle appearance
+  },
+  
   bonusText: {
-    color: '#333333',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
+    fontSize: 15, // Smaller text for consistency
+    fontWeight: '400',
+    color: '#4A5568', // Softer gray for descriptions
+    lineHeight: 16, // Tight line height for compact display
+    paddingTop:5,
   },
   divider: {
     marginVertical: 16,

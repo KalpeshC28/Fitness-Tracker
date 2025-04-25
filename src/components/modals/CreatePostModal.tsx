@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Modal, Image, ScrollView, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, Modal, Image, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { Text, TextInput, Button, IconButton, ActivityIndicator } from 'react-native-paper';
 import { useAuth } from '../../context/AuthContext';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,6 +15,8 @@ interface CreatePostModalProps {
   onPost: () => void;
   communityId?: string;
 }
+
+const { width } = Dimensions.get('window');
 
 export function CreatePostModal({ visible, onDismiss, onPost, communityId }: CreatePostModalProps) {
   const [content, setContent] = useState('');
@@ -123,27 +125,38 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
   };
 
   return (
-    <Modal visible={visible} animationType="slide">
+    <Modal visible={visible} animationType="slide" statusBarTranslucent>
       <SafeAreaView style={styles.container}>
+        {/* Header */}
         <View style={styles.header}>
           <IconButton 
             icon="close" 
             size={24} 
             onPress={onDismiss}
+            style={styles.closeButton}
           />
-          <Text variant="titleLarge" style={styles.headerTitle}>Create Post</Text>
+          <View style={styles.headerCenter}>
+            <Text variant="titleMedium" style={styles.headerTitle}>Create Post</Text>
+          </View>
           <Button 
             mode="contained"
             onPress={handlePost}
             loading={isLoading}
             disabled={isLoading || (!content.trim() && !mediaUri)}
             style={styles.postButton}
+            labelStyle={styles.postButtonLabel}
+            compact
           >
             Post
           </Button>
         </View>
 
-        <ScrollView style={styles.content}>
+        {/* Content */}
+        <ScrollView 
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          keyboardShouldPersistTaps="handled"
+        >
           <TextInput
             placeholder="What's on your mind?"
             value={content}
@@ -152,12 +165,19 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
             numberOfLines={5}
             style={styles.input}
             disabled={isLoading}
+            underlineColor="transparent"
+            activeUnderlineColor="transparent"
+            placeholderTextColor="#999"
           />
 
           {mediaUri && (
             <View style={styles.mediaPreview}>
               {mediaType === 'image' ? (
-                <Image source={{ uri: mediaUri }} style={styles.previewMedia} />
+                <Image 
+                  source={{ uri: mediaUri }} 
+                  style={styles.previewMedia} 
+                  resizeMode="contain"
+                />
               ) : (
                 <Video
                   source={{ uri: mediaUri }}
@@ -174,6 +194,7 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
                   setMediaType('none');
                 }}
                 style={styles.removeMedia}
+                iconColor="#fff"
               />
             </View>
           )}
@@ -181,31 +202,34 @@ export function CreatePostModal({ visible, onDismiss, onPost, communityId }: Cre
           {isUploading && (
             <View style={styles.uploadingContainer}>
               <ActivityIndicator size="large" />
-              <Text>Uploading media...</Text>
+              <Text style={styles.uploadingText}>Uploading media...</Text>
             </View>
           )}
         </ScrollView>
 
+        {/* Footer */}
         <View style={styles.footer}>
-          <Text variant="bodyMedium" style={styles.addToPost}>Add to your post</Text>
-          <View style={styles.mediaButtons}>
-            <TouchableOpacity 
-              style={styles.mediaButton} 
-              onPress={pickImage}
-              disabled={isLoading}
-            >
-              <MaterialCommunityIcons name="image" size={24} color="#4CAF50" />
-              <Text style={styles.mediaButtonText}>Photo</Text>
-            </TouchableOpacity>
+          <View style={styles.footerContent}>
+            <Text variant="bodyMedium" style={styles.addToPost}>Add to your post</Text>
+            <View style={styles.mediaButtons}>
+              <TouchableOpacity 
+                style={styles.mediaButton} 
+                onPress={pickImage}
+                disabled={isLoading}
+              >
+                <MaterialCommunityIcons name="image" size={24} color="#4CAF50" />
+                <Text style={styles.mediaButtonText}>Photo</Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.mediaButton} 
-              onPress={pickVideo}
-              disabled={isLoading}
-            >
-              <MaterialCommunityIcons name="video" size={24} color="#F44336" />
-              <Text style={styles.mediaButtonText}>Video</Text>
-            </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.mediaButton} 
+                onPress={pickVideo}
+                disabled={isLoading}
+              >
+                <MaterialCommunityIcons name="video" size={24} color="#F44336" />
+                <Text style={styles.mediaButtonText}>Video</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </SafeAreaView>
@@ -217,39 +241,62 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+    justifyContent:'center',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#E0E0E0',
   },
-  headerTitle: {
+  closeButton: {
+    margin: 0,
+  },
+  headerCenter: {
     flex: 1,
-    marginLeft: 16,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontWeight: '600',
   },
   postButton: {
     borderRadius: 20,
+    marginLeft: 8,
+    height: 36,
+    width:70,
+  },
+  postButtonLabel: {
+    fontSize: 14,
   },
   content: {
     flex: 1,
-    padding: 16,
+  },
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
   },
   input: {
     backgroundColor: 'transparent',
     fontSize: 16,
     minHeight: 120,
+    paddingHorizontal: 0,
+    paddingVertical: 16,
+    lineHeight: 22,
   },
   mediaPreview: {
-    marginTop: 16,
+    marginTop: 12,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#f5f5f5',
+    position: 'relative',
   },
   previewMedia: {
     width: '100%',
-    height: 300,
+    aspectRatio: 1,
+    maxHeight: width * 0.9,
     backgroundColor: '#f5f5f5',
   },
   removeMedia: {
@@ -257,34 +304,47 @@ const styles = StyleSheet.create({
     top: 8,
     right: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
+    margin: 0,
   },
   uploadingContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
+    marginTop: 20,
+  },
+  uploadingText: {
+    marginTop: 8,
+    color: '#666',
   },
   footer: {
-    padding: 16,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E0E0E0',
+    paddingBottom: 8,
+  },
+  footerContent: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
   },
   addToPost: {
     marginBottom: 12,
     color: '#666',
+    fontSize: 14,
   },
   mediaButtons: {
     flexDirection: 'row',
-    gap: 20,
+    gap: 16,
   },
   mediaButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    padding: 8,
-    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: '#f5f5f5',
   },
   mediaButtonText: {
     color: '#666',
+    fontSize: 14,
   },
-}); 
+});
