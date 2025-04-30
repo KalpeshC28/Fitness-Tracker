@@ -1,6 +1,5 @@
-// src/screens/main/CreateCommunity.tsx
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, Image } from 'react-native';
+import { View, StyleSheet, ScrollView, Image, StyleProp, ViewStyle } from 'react-native';
 import { TextInput, Button, Switch, Text, IconButton } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
@@ -25,6 +24,8 @@ export default function CreateCommunityScreen() {
   const [loading, setLoading] = useState(false);
   const { supabase, user } = useAuth();
 
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -34,13 +35,18 @@ export default function CreateCommunityScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [16, 9],
-        quality: 1,
+        quality: 0.8,
       });
 
       if (!result.canceled) {
+        const fileSize = result.assets[0].fileSize || (await fetch(result.assets[0].uri)).headers.get('content-length');
+        if (fileSize && parseInt(String(fileSize)) > MAX_FILE_SIZE) {
+          alert('Image size exceeds 10MB limit');
+          return;
+        }
         setCoverImage(result.assets[0].uri);
       }
     } catch (error) {
@@ -58,12 +64,17 @@ export default function CreateCommunityScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "videos",
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
         allowsEditing: true,
-        quality: 1,
+        quality: 0.8,
       });
 
       if (!result.canceled) {
+        const fileSize = result.assets[0].fileSize || (await fetch(result.assets[0].uri)).headers.get('content-length');
+        if (fileSize && parseInt(String(fileSize)) > MAX_FILE_SIZE) {
+          alert('Video size exceeds 10MB limit');
+          return;
+        }
         setVideo(result.assets[0].uri);
         console.log('Selected video URI:', result.assets[0].uri);
       }
@@ -75,51 +86,52 @@ export default function CreateCommunityScreen() {
 
   const uploadMedia = async (communityId: string, mediaUri: string, type: 'image' | 'video') => {
     if (!mediaUri) return null;
-  
+
     try {
       console.log(`Uploading ${type} with URI:`, mediaUri);
-  
-      if (!mediaUri.startsWith('file://')) {
-        throw new Error(`Invalid ${type} URI: Must be a local file path (file://)`);
-      }
-  
-      const fileExt = mediaUri.split('.').pop()?.toLowerCase() || 
-                     (type === 'image' ? 'jpg' : 'mp4');
+
+      const normalizedUri = mediaUri.startsWith('file://') ? mediaUri : `file://${mediaUri}`;
+      const fileExt = mediaUri.split('.').pop()?.toLowerCase() || (type === 'image' ? 'jpeg' : 'mp4');
       const fileName = `${type}_${communityId}_${Date.now()}.${fileExt}`;
-      
-      // Correct bucket names based on your screenshot
       const bucket = type === 'image' ? 'cover-photos' : 'community_posts';
-      const folderPath = type === 'video' ? 'community-videos/' : '';
+      const folderPath = type === 'video' ? 'community_videos/' : '';
       const filePath = `${folderPath}${fileName}`;
-  
-      // Use Supabase JS client for upload
+
+      console.log(`Uploading to bucket: ${bucket}, path: ${filePath}`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const response = await fetch(normalizedUri, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${type} file: ${response.statusText}`);
+      }
+
+      const arrayBuffer = await response.arrayBuffer();
+      const contentType = type === 'image' ? `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}` : `video/${fileExt}`;
+      console.log(`Fetched ${type} arraybuffer, size: ${arrayBuffer.byteLength} bytes, contentType: ${contentType}`);
+
+      const { data: buckets, error: bucketError } = await supabase.storage.listBuckets();
+      if (bucketError || !buckets.some((b) => b.name === bucket)) {
+        throw new Error(`Bucket ${bucket} does not exist or is inaccessible`);
+      }
+
+      console.log(`Starting upload to Supabase for ${type}...`);
       const { data, error } = await supabase.storage
         .from(bucket)
-        .upload(filePath, {
-          uri: mediaUri,
-          name: fileName,
-          type: type === 'image' ? `image/${fileExt}` : `video/${fileExt}`,
-        } as any, {
-          contentType: type === 'image' ? `image/${fileExt}` : `video/${fileExt}`,
+        .upload(filePath, arrayBuffer, {
+          contentType,
           upsert: false,
         });
-  
+
       if (error) {
-        console.error('Supabase upload error:', error);
+        console.error(`Supabase upload error for ${type}:`, error);
         throw error;
       }
-  
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(filePath);
-  
-      if (!publicUrl) {
-        throw new Error(`Failed to get public URL for ${type}`);
-      }
-  
-      console.log(`Successfully uploaded ${type}. Public URL:`, publicUrl);
-      return publicUrl;
+
+      console.log(`Successfully uploaded ${type}. File path:`, filePath);
+      return fileName;
     } catch (error) {
       console.error(`Error uploading ${type}:`, error);
       throw error;
@@ -131,10 +143,10 @@ export default function CreateCommunityScreen() {
       alert('Please enter a community name');
       return;
     }
-  
+
     setLoading(true);
     try {
-      // First create the community without media
+      console.log('Creating community in database...');
       const { data: community, error: communityError } = await supabase
         .from('communities')
         .insert({
@@ -143,9 +155,9 @@ export default function CreateCommunityScreen() {
           creator_id: user?.id,
           is_private: isPrivate,
           is_paid: isPaid,
-          price: isPaid ? parseFloat(price) : null,
-          discounted_price: isPaid && discountedPrice ? parseFloat(discountedPrice) : null,
-          seats_left: isPaid && seatsLeft ? parseInt(seatsLeft) : null,
+          price: isPaid ? parseFloat(price) || null : null,
+          discounted_price: isPaid && discountedPrice ? parseFloat(discountedPrice) || null : null,
+          seats_left: isPaid && seatsLeft ? parseInt(seatsLeft) || null : null,
           offer_end_time: isPaid && offerEndTime ? new Date(offerEndTime).toISOString() : null,
           bonus_1: bonus1.trim() || null,
           bonus_2: bonus2.trim() || null,
@@ -154,28 +166,50 @@ export default function CreateCommunityScreen() {
         })
         .select()
         .single();
-  
+
       if (communityError) throw communityError;
-  
-      // Upload media in parallel
-      const [coverImageUrl, videoUrl] = await Promise.all([
-        coverImage ? uploadMedia(community.id, coverImage, 'image') : Promise.resolve(null),
-        video ? uploadMedia(community.id, video, 'video') : Promise.resolve(null)
-      ]);
-  
-      // Update community with media URLs if they exist
+      console.log('Community created with ID:', community.id);
+
+      let coverImageUrl = null;
+      let videoUrl = null;
+
+      if (coverImage) {
+        console.log('Starting cover image upload...');
+        const coverImageFileName = await uploadMedia(community.id, coverImage, 'image');
+        if (coverImageFileName) {
+          const { data: publicUrlData } = supabase.storage
+            .from('cover-photos')
+            .getPublicUrl(coverImageFileName);
+          coverImageUrl = publicUrlData.publicUrl;
+          console.log('Cover image uploaded, public URL:', coverImageUrl);
+        }
+      }
+
+      if (video) {
+        console.log('Starting video upload...');
+        const videoFileName = await uploadMedia(community.id, video, 'video');
+        if (videoFileName) {
+          const { data: publicUrlData } = supabase.storage
+            .from('community_posts')
+            .getPublicUrl(`community_videos/${videoFileName}`);
+          videoUrl = publicUrlData.publicUrl;
+          console.log('Video uploaded, public URL:', videoUrl);
+        }
+      }
+
       const updates: any = {};
       if (coverImageUrl) updates.cover_image = coverImageUrl;
       if (videoUrl) updates.video_url = videoUrl;
-  
+
       if (Object.keys(updates).length > 0) {
+        console.log('Updating community with media URLs:', updates);
         await supabase
           .from('communities')
           .update(updates)
           .eq('id', community.id);
       }
-  
-      // Add creator as admin
+
+      console.log('Adding creator as admin...');
       await supabase
         .from('community_members')
         .insert({
@@ -183,17 +217,38 @@ export default function CreateCommunityScreen() {
           user_id: user?.id,
           role: 'admin',
           status: 'active',
-          joined_at: new Date().toISOString()
+          joined_at: new Date().toISOString(),
         });
-  
+
+      console.log('Community creation completed successfully');
+      setName('');
+      setDescription('');
+      setIsPrivate(false);
+      setIsPaid(false);
+      setPrice('');
+      setDiscountedPrice('');
+      setSeatsLeft('');
+      setOfferEndTime('');
+      setBonus1('');
+      setBonus2('');
+      setBonus3('');
+      setCoverImage(null);
+      setVideo(null);
       router.back();
       alert('Community created successfully!');
     } catch (error) {
       console.error('Error creating community:', error);
-      alert(`Failed to create community: ${error.message}`);
+      alert(`Failed to create community: ${error.message || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const removeImageStyle: StyleProp<ViewStyle> = {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   };
 
   return (
@@ -315,7 +370,7 @@ export default function CreateCommunityScreen() {
             <IconButton
               icon="close"
               size={20}
-              style={styles.removeImage}
+              style={removeImageStyle}
               onPress={() => setCoverImage(null)}
             />
           </View>
@@ -336,12 +391,12 @@ export default function CreateCommunityScreen() {
               style={styles.previewImage}
               source={{ uri: video }}
               useNativeControls
-              contentFit={VideoContentFit?.CONTAIN ?? "contain"}
+              contentFit={VideoContentFit.CONTAIN ?? "contain"}
             />
             <IconButton
               icon="close"
               size={20}
-              style={styles.removeImage}
+              style={removeImageStyle}
               onPress={() => setVideo(null)}
             />
           </View>
@@ -381,6 +436,7 @@ const styles = StyleSheet.create({
   },
   imageButton: {
     marginBottom: 16,
+    // IDENTITY
   },
   imagePreview: {
     position: 'relative',
@@ -392,11 +448,5 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 200,
     borderRadius: 8,
-  },
-  removeImage: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
 });
