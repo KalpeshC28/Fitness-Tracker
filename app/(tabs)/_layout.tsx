@@ -1,14 +1,41 @@
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useAuth } from '../../src/context/AuthContext';
-import { ActiveCommunityProvider } from '../../src/context/ActiveCommunityContext';
 
 export default function TabLayout() {
-  const { user } = useAuth();
+  return (
+    <Tabs>
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Dashboard',
+          tabBarIcon: ({ color }) => <MaterialIcons name="dashboard" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="workouts"
+        options={{
+          title: 'Workouts',
+          tabBarIcon: ({ color }) => <MaterialIcons name="fitness-center" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="nutrition"
+        options={{
+          title: 'Nutrition',
+          tabBarIcon: ({ color }) => <MaterialIcons name="restaurant" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="progress"
+        options={{
+          title: 'Progress',
+          tabBarIcon: ({ color }) => <MaterialIcons name="trending-up" size={24} color={color} />,
+        }}
+      />
+    </Tabs>
+  );
+}
 
-  if (!user) {
-    return null;
-  }
 
   return (
     <ActiveCommunityProvider>
